@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Зелёный шар</title>
+    <style>
+        body {
+            margin: 0;
+            background: #05050a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            border: 2px solid #1a2a4a;
+            box-shadow: 0 0 40px rgba(30, 80, 180, 0.4);
+        }
+        #restartBtn {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            padding: 10px 18px;
+            background: #2a4a7a;
+            color: #e0f0ff;
+            border: 2px solid #4a80c0;
+            border-radius: 8px;
+            font-family: sans-serif;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #restartBtn:hover {
+            background: #3a6aaa;
+        }
+    </style>
+</head>
+<body>
+    <button id="restartBtn">↻ Рестарт (R)</button>
+    <canvas id="game" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+
+        const SPEED = 320;
+        const BALL_RADIUS = 18;
+
+        const ENEMY_RADIUS = BALL_RADIUS / 2;
+        const ENEMY_SPEED = SPEED;
+        const WARNING_TIME = 1.0;               // сколько секунд враг «предупреждает»
+
+        let SPAWN_INTERVAL = 1.2;
+        const SPAWN_MIN = 0.3;
+        const SPEEDUP_EVERY = 5;
+        const SPEEDUP_FACTOR = 0.85;
+
+        let px = WIDTH / 2;
+        let py = HEIGHT / 2;
+
+        const keys = {};
+        const enemies = [];
+        let spawnTimer = 0;
+        let speedupTimer = 0;
+        let isDead = false;
+
+        // -------- СЧЁТ --------
+        let score = 0;
+        let bestScore = Number(localStorage.getItem("bestScore") || 0);
+        let scoreTimer = 0;
+        const SCORE_PER_SECOND = 10;
+
+        // -------- РЕСТАРТ --------
+        function restartGame() {
+            location.reload();
+        }
+
+        window.addEventListener("keydown", (e) => {
+            const k = e.key.toLowerCase();
+            keys[k] = true;
+            if (k === "r" || k === "к") {
+                restartGame();
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        document.getElementById("restartBtn").addEventListener("click", restartGame);
+
+        // -------- СПАВН ВРАГА --------
+        // Фаза 1 (warning): враг стоит на границе, мигает, направление ещё не выбрано
+        // Фаза 2 (attack):  враг полетел к позиции игрока на момент окончания предупреждения
+        function spawnEnemy() {
+            const side = Math.floor(Math.random() * 4);
+            let ex, ey;
+
+            if (side === 0) {
+                ex = Math.random() * (WIDTH - 2 * ENEMY_RADIUS) + ENEMY_RADIUS;
+                ey = ENEMY_RADIUS;
+            } else if (side === 1) {
+                ex = WIDTH - ENEMY_RADIUS;
+                ey = Math.random() * (HEIGHT - 2 * ENEMY_RADIUS) + ENEMY_RADIUS;
+            } else if (side === 2) {
+                ex = Math.random() * (WIDTH - 2 * ENEMY_RADIUS) + ENEMY_RADIUS;
+                ey = HEIGHT - ENEMY_RADIUS;
+            } else {
+                ex = ENEMY_RADIUS;
+                ey = Math.random() * (HEIGHT - 2 * ENEMY_RADIUS) + ENEMY_RADIUS;
+            }
+
+            enemies.push({
+                x: ex,
+                y: ey,
+                dx: 0,
+                dy: 0,
+                state: "warning",
+                warningTimer: 0,
+            });
+        }
+
+        // -------- ИГРОВОЙ ЦИКЛ --------
+        let lastTime = performance.now();
+
+        function loop(now) {
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            if (!isDead) {
+                // Игрок
+                let dx = 0;
+                let dy = 0;
+
+                if (keys["a"] || keys["ф"]) dx -= 1;
+                if (keys["d"] || keys["в"]) dx += 1;
+                if (keys["w"] || keys["ц"]) dy -= 1;
+                if (keys["s"] || keys["ы"]) dy += 1;
+
+                if (dx !== 0 && dy !== 0) {
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    dx /= len;
+                    dy /= len;
+                }
+
+                px += dx * SPEED * dt;
+                py += dy * SPEED * dt;
+
+                if (px < BALL_RADIUS) px = BALL_RADIUS;
+                if (px > WIDTH - BALL_RADIUS) px = WIDTH - BALL_RADIUS;
+                if (py < BALL_RADIUS) py = BALL_RADIUS;
+                if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
+
+                // Счёт +10 в секунду
+                scoreTimer += dt;
+                if (scoreTimer >= 1) {
+                    scoreTimer -= 1;
+                    score += SCORE_PER_SECOND;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        localStorage.setItem("bestScore", bestScore);
+                    }
+                }
+
+                // Ускорение спавна
+                speedupTimer += dt;
+                if (speedupTimer >= SPEEDUP_EVERY) {
+                    speedupTimer -= SPEEDUP_EVERY;
+                    SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
+                }
+
+                // Спавн
+                spawnTimer += dt;
+                if (spawnTimer >= SPAWN_INTERVAL) {
+                    spawnTimer -= SPAWN_INTERVAL;
+                    spawnEnemy();
+                }
+
+                // Обновление врагов
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+
+                    if (e.state === "warning") {
+                        // Стоит на месте, копит таймер
+                        e.warningTimer += dt;
+                        if (e.warningTimer >= WARNING_TIME) {
+                            // Переход в атаку — целимся в текущую позицию игрока
+                            let ddx = px - e.x;
+                            let ddy = py - e.y;
+                            const len = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+                            e.dx = ddx / len;
+                            e.dy = ddy / len;
+                            e.state = "attack";
+                        }
+                    } else {
+                        // Летит
+                        e.x += e.dx * ENEMY_SPEED * dt;
+                        e.y += e.dy * ENEMY_SPEED * dt;
+
+                        if (
+                            e.x < -ENEMY_RADIUS ||
+                            e.x > WIDTH + ENEMY_RADIUS ||
+                            e.y < -ENEMY_RADIUS ||
+                            e.y > HEIGHT + ENEMY_RADIUS
+                        ) {
+                            enemies.splice(i, 1);
+                            continue;
+                        }
+
+                        // Столкновение
+                        const ddx = e.x - px;
+                        const ddy = e.y - py;
+                        const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+                        if (dist < ENEMY_RADIUS + BALL_RADIUS) {
+                            isDead = true;
+                            enemies.length = 0;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // -------- ОТРИСОВКА --------
+            ctx.fillStyle = "rgb(10, 15, 40)";
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+            // Враги
+            for (const e of enemies) {
+                if (e.state === "warning") {
+                    // Фаза предупреждения — мигающий пульсирующий контур
+                    const t = e.warningTimer / WARNING_TIME;    // 0..1
+                    const pulse = 0.5 + 0.5 * Math.sin(e.warningTimer * 30);
+                    const ringRadius = ENEMY_RADIUS + (1 - t) * 14;
+
+                    // Расширяющееся кольцо
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, ringRadius, 0, Math.PI * 2);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = "rgba(250, 220, 60, " + (0.4 + 0.4 * pulse) + ")";
+                    ctx.stroke();
+
+                    // Слабый тусклый шар
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(250, 220, 60, " + (0.35 + 0.3 * pulse) + ")";
+                    ctx.fill();
+                } else {
+                    // Атака — обычный жёлтый шар
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgb(250, 220, 60)";
+                    ctx.fill();
+                }
+            }
+
+            if (!isDead) {
+                ctx.beginPath();
+                ctx.arc(px, py, BALL_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = "rgb(80, 230, 120)";
+                ctx.fill();
+
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "rgb(180, 255, 200)";
+                ctx.stroke();
+            }
+
+            // -------- HUD --------
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+
+            ctx.fillStyle = "rgb(230, 245, 255)";
+            ctx.font = "bold 28px sans-serif";
+            ctx.fillText("Счёт: " + score, 16, 16);
+
+            ctx.fillStyle = "rgb(160, 200, 240)";
+            ctx.font = "18px sans-serif";
+            ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
+
+            ctx.fillStyle = "rgb(120, 150, 190)";
+            ctx.font = "14px sans-serif";
+            ctx.fillText("Спавн: раз в " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 82);
+
+            if (isDead) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+
+                ctx.fillStyle = "rgb(255, 80, 80)";
+                ctx.font = "bold 64px sans-serif";
+                ctx.fillText("GAME OVER", WIDTH / 2, HEIGHT / 2 - 100);
+
+                ctx.fillStyle = "rgb(230, 245, 255)";
+                ctx.font = "32px sans-serif";
+                ctx.fillText("Твой счёт: " + score, WIDTH / 2, HEIGHT / 2 - 20);
+
+                ctx.fillStyle = "rgb(180, 220, 255)";
+                ctx.font = "26px sans-serif";
+                ctx.fillText("Лучший счёт: " + bestScore, WIDTH / 2, HEIGHT / 2 + 30);
+
+                if (score >= bestScore && score > 0) {
+                    ctx.fillStyle = "rgb(255, 220, 80)";
+                    ctx.font = "bold 22px sans-serif";
+                    ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH / 2, HEIGHT / 2 + 75);
+                }
+
+                ctx.fillStyle = "rgb(200, 200, 220)";
+                ctx.font = "22px sans-serif";
+                ctx.fillText("Нажми R чтобы перезапустить", WIDTH / 2, HEIGHT / 2 + 130);
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
