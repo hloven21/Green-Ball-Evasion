@@ -63,7 +63,6 @@
         const ENEMY_SPEED = SPEED;
         const WARNING_TIME = 1.0;
 
-        // Начальный интервал спавна — запоминаем, чтобы сбрасывать
         const SPAWN_INTERVAL_INIT = 1.2;
         let SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
         const SPAWN_MIN = 0.3;
@@ -93,10 +92,25 @@
         const PLANE_CHECK_MIN = 0.15;
         const PLANE_CHECK_MAX = 0.55;
 
+        // ---------- ОПРЕДЕЛЕНИЕ УСТРОЙСТВА ----------
+        // Смотрим три независимых признака и комбинируем.
+        const uaIsMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+        const hasTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+        const isSmallScreen = window.innerWidth < 900;
+
+        // Устройство считаем мобильным, если это явно мобильная ОС,
+        // ИЛИ если есть тач-ввод и экран небольшой (для планшетов и гибридов).
+        const mobileDevice = uaIsMobile || (hasTouch && isSmallScreen);
+
         // ---------- УПРАВЛЕНИЕ ----------
         const CONTROL_MODES = ["keyboard", "mouse", "touch"];
-        let controlModeIndex = 0;
-        let controlMode = CONTROL_MODES[0];
+
+        // Индекс режима: телефон → touch (2), ПК → keyboard (0)
+        let controlModeIndex = mobileDevice ? 2 : 0;
+        let controlMode = CONTROL_MODES[controlModeIndex];
+
+        // Для отладки — можно посмотреть в консоли, как определилось устройство
+        console.log("UA мобильный:", uaIsMobile, "| Тач:", hasTouch, "| Малый экран:", isSmallScreen, "| Итог: мобильный =", mobileDevice);
 
         let mouseX = WIDTH / 2;
         let mouseY = HEIGHT / 2;
@@ -214,43 +228,32 @@
         let scoreTimer = 0;
         const SCORE_PER_SECOND = 10;
 
-        // -------- МЯГКИЙ СБРОС (без перезагрузки) --------
+        // -------- МЯГКИЙ СБРОС --------
         function softReset() {
-            // Очищаем всех врагов и эффекты
             enemies.length = 0;
             triangles.length = 0;
             planes.length = 0;
             explosions.length = 0;
             skidMarks.length = 0;
 
-            // Возвращаем игрока в центр
             px = WIDTH / 2;
             py = HEIGHT / 2;
 
-            // Сбрасываем таймеры спавна
             spawnTimer = 0;
             speedupTimer = 0;
             triangleSpawnTimer = 0;
             planeSpawnTimer = 0;
 
-            // Возвращаем начальный интервал
             SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
 
-            // Сбрасываем таймер счёта — очки не капают «внезапно»
             scoreTimer = 0;
-
-            // Оживляем игрока, если он был мёртв
             isDead = false;
 
-            // Сбрасываем джойстик, если он был захвачен
             joystickTouchId = null;
             joystickMouseDown = false;
             resetJoystick();
-
-            // Режим управления, счёт и рекорд — НЕ трогаем
         }
 
-        // -------- ПОЛНАЯ ПЕРЕЗАГРУЗКА (для кнопки в углу) --------
         function restartGame() {
             location.reload();
         }
@@ -260,7 +263,6 @@
             const k = e.key.toLowerCase();
             keys[k] = true;
 
-            // R — мягкий сброс, БЕЗ перезагрузки
             if (k === "r" || k === "к") {
                 softReset();
             }
@@ -717,7 +719,6 @@
                     spawnPlane();
                 }
 
-                // Жёлтые шары
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
@@ -758,7 +759,6 @@
                     }
                 }
 
-                // Треугольники
                 if (!isDead) {
                     for (let i = triangles.length - 1; i >= 0; i--) {
                         const t = triangles[i];
@@ -865,7 +865,6 @@
                     }
                 }
 
-                // Ракеты
                 if (!isDead) {
                     for (let i = planes.length - 1; i >= 0; i--) {
                         const p = planes[i];
@@ -904,7 +903,6 @@
                 }
             }
 
-            // Взрывы
             for (let i = explosions.length - 1; i >= 0; i--) {
                 const ex = explosions[i];
                 ex.t += dt;
@@ -924,7 +922,6 @@
                 if (ex.t >= ex.duration) explosions.splice(i, 1);
             }
 
-            // Следы
             for (let i = skidMarks.length - 1; i >= 0; i--) {
                 const s = skidMarks[i];
                 s.t += dt;
@@ -1098,7 +1095,6 @@
             ctx.fillText("Треугольников: " + triangles.length, 16, 102);
             ctx.fillText("Ракет: " + planes.length, 16, 120);
 
-            // Подсказка про R — мягкий сброс
             ctx.fillStyle = "rgba(180, 210, 240, 0.85)";
             ctx.font = "bold 14px sans-serif";
             ctx.fillText("R — сброс уровня (без перезагрузки)", 16, 146);
