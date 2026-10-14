@@ -6,7 +6,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Зелёный шар</title>
+    <title>Green Ball Evasion.game</title>
+    <meta name="description" content="A simple game in which you need to dodge enemies. Survive for as long as possible.">
+    <meta property="og:title" content="Green Ball Evasion.game">
+    <meta property="og:description" content="A simple game in which you need to dodge enemies. Survive for as long as possible.">
+    <meta property="og:type" content="website">
     <style>
         html, body {
             margin: 0;
@@ -118,7 +122,6 @@
             medium: "rgb(250, 220, 100)",
             hard: "rgb(255, 130, 110)",
         };
-        // 1.5x медленнее = 1/1.5 ≈ 0.6667
         const DIFF_MULT = { easy: 2 / 3, medium: 1, hard: 1.5 };
 
         let difficulty = localStorage.getItem("difficulty") || "medium";
@@ -159,7 +162,7 @@
 
         const PLANE_MAX_PATH = 1600;
 
-        // ---------- СКОРОСТИ (пересчитываются при смене сложности) ----------
+        // ---------- СКОРОСТИ ----------
         let ENEMY_SPEED = 320;
         let TRIANGLE_SPEED = 210;
         let PLANE_SPEED = 210;
@@ -234,8 +237,8 @@
         const DIFF_BTN_W = (DIFF_AVAIL_W - DIFF_BTN_GAP * 2) / 3;
         const DIFF_BTN_H = 54;
 
-        const DIFF_SECTION_Y = INFO_PANEL_Y + 370;         // заголовок «СЛОЖНОСТЬ»
-        const DIFF_BTN_Y = DIFF_SECTION_Y + 32;            // кнопки
+        const DIFF_SECTION_Y = INFO_PANEL_Y + 370;
+        const DIFF_BTN_Y = DIFF_SECTION_Y + 32;
         const DIFF_BTN_X1 = INFO_PANEL_X + DIFF_PAD;
         const DIFF_BTN_X2 = DIFF_BTN_X1 + DIFF_BTN_W + DIFF_BTN_GAP;
         const DIFF_BTN_X3 = DIFF_BTN_X2 + DIFF_BTN_W + DIFF_BTN_GAP;
@@ -260,7 +263,6 @@
                    y >= CTRL_BTN_Y && y <= CTRL_BTN_Y + CTRL_BTN_H;
         }
 
-        // Возвращает "easy" | "medium" | "hard" | null
         function getDiffButtonAt(x, y) {
             if (y < DIFF_BTN_Y || y > DIFF_BTN_Y + DIFF_BTN_H) return null;
             if (x >= DIFF_BTN_X1 && x <= DIFF_BTN_X1 + DIFF_BTN_W) return "easy";
@@ -413,7 +415,6 @@
             localStorage.setItem("difficulty", difficulty);
             applyDifficulty();
             bestScore = Number(localStorage.getItem(bestScoreKey(difficulty)) || 0);
-            // Полный мягкий сброс с обнулением счёта — начинаем «с чистого листа»
             score = 0;
             softReset();
         }
@@ -862,7 +863,6 @@
             drawGear(cx, cy, 15, 10, 8, 5, "rgb(230, 245, 255)");
         }
 
-        // -------- КНОПКИ СЛОЖНОСТИ --------
         function drawDiffButton(x, y, w, h, diffKey) {
             const isActive = diffKey === difficulty;
             const color = DIFF_COLORS[diffKey];
@@ -929,7 +929,6 @@
             const leftX = INFO_PANEL_X + 36;
             let y = INFO_PANEL_Y + 94;
 
-            // УПРАВЛЕНИЕ
             ctx.textAlign = "left";
             ctx.textBaseline = "top";
             ctx.fillStyle = "rgb(160, 210, 255)";
@@ -950,7 +949,6 @@
             ctx.fillText("• R — сброс уровня без перезагрузки", leftX, y);
             y += 38;
 
-            // ВРАГИ
             ctx.fillStyle = "rgb(160, 210, 255)";
             ctx.font = "bold 20px sans-serif";
             ctx.fillText("ВРАГИ", leftX, y);
@@ -973,17 +971,14 @@
             ctx.font = "16px sans-serif";
             ctx.fillText("Ракета — взрыв через 0.5 сек, если вы в красной зоне", leftX + 30, y);
 
-            // СЛОЖНОСТЬ
             ctx.fillStyle = "rgb(160, 210, 255)";
             ctx.font = "bold 20px sans-serif";
             ctx.fillText("СЛОЖНОСТЬ", leftX, DIFF_SECTION_Y);
 
-            // Кнопки
             drawDiffButton(DIFF_BTN_X1, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "easy");
             drawDiffButton(DIFF_BTN_X2, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "medium");
             drawDiffButton(DIFF_BTN_X3, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "hard");
 
-            // Рекорды под каждой кнопкой
             const bestY = DIFF_BTN_Y + DIFF_BTN_H + 8;
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
@@ -998,7 +993,6 @@
             ctx.fillText("Рекорд: " + mediumBest, DIFF_BTN_X2 + DIFF_BTN_W / 2, bestY);
             ctx.fillText("Рекорд: " + hardBest, DIFF_BTN_X3 + DIFF_BTN_W / 2, bestY);
 
-            // Подпись под секцией
             ctx.textAlign = "left";
             ctx.textBaseline = "top";
             ctx.fillStyle = "rgba(160, 190, 225, 0.7)";
@@ -1009,7 +1003,6 @@
                 bestY + 28
             );
 
-            // Кнопка «Понятно»
             ctx.beginPath();
             if (ctx.roundRect) {
                 ctx.roundRect(INFO_CLOSE_X, INFO_CLOSE_Y, INFO_CLOSE_W, INFO_CLOSE_H, 12);
@@ -1616,7 +1609,6 @@
             ctx.font = "18px sans-serif";
             ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
 
-            // Текущая сложность в HUD
             ctx.fillStyle = DIFF_COLORS[difficulty];
             ctx.font = "bold 16px sans-serif";
             ctx.fillText("Сложность: " + DIFF_NAMES[difficulty], 16, 78);
