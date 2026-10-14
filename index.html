@@ -45,7 +45,7 @@
     </style>
 </head>
 <body>
-    <button id="restartBtn">↻ Рестарт (R)</button>
+    <button id="restartBtn">↻ Полная перезагрузка</button>
     <canvas id="game" width="1200" height="800"></canvas>
 
     <script>
@@ -63,7 +63,9 @@
         const ENEMY_SPEED = SPEED;
         const WARNING_TIME = 1.0;
 
-        let SPAWN_INTERVAL = 1.2;
+        // Начальный интервал спавна — запоминаем, чтобы сбрасывать
+        const SPAWN_INTERVAL_INIT = 1.2;
+        let SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
         const SPAWN_MIN = 0.3;
         const SPEEDUP_EVERY = 5;
         const SPEEDUP_FACTOR = 0.85;
@@ -101,24 +103,24 @@
         const MOUSE_DEADZONE = 4;
 
         // -------- ВИРТУАЛЬНЫЙ ДЖОЙСТИК --------
-        const JOYSTICK_BASE_RADIUS = 120;                                            // радиус внешнего круга
-        const JOYSTICK_KNOB_RADIUS = 55;                                             // радиус шляпки
-        const JOYSTICK_MAX_DIST = JOYSTICK_BASE_RADIUS - 12;                         // макс. смещение шляпки
-        const JOYSTICK_MARGIN = 60;                                                  // отступ от краёв
-        const JOYSTICK_GRAB_RADIUS = JOYSTICK_BASE_RADIUS * 1.4;                     // зона захвата пальцем
-        const JOYSTICK_DEADZONE = 0.15;                                              // 15% — минимальное отклонение
-        const JOYSTICK_ANALOG = false;                                               // true — скорость пропорциональна, false — всегда максимум
+        const JOYSTICK_BASE_RADIUS = 120;
+        const JOYSTICK_KNOB_RADIUS = 55;
+        const JOYSTICK_MAX_DIST = JOYSTICK_BASE_RADIUS - 12;
+        const JOYSTICK_MARGIN = 60;
+        const JOYSTICK_GRAB_RADIUS = JOYSTICK_BASE_RADIUS * 1.4;
+        const JOYSTICK_DEADZONE = 0.15;
+        const JOYSTICK_ANALOG = false;
 
         const JOYSTICK_CX = JOYSTICK_MARGIN + JOYSTICK_BASE_RADIUS;
         const JOYSTICK_CY = HEIGHT - JOYSTICK_MARGIN - JOYSTICK_BASE_RADIUS;
 
-        let joystickTouchId = null;      // идентификатор касания, которое управляет джойстиком
-        let joystickMouseDown = false;   // для теста мышью
+        let joystickTouchId = null;
+        let joystickMouseDown = false;
         let joystickKnobX = JOYSTICK_CX;
         let joystickKnobY = JOYSTICK_CY;
         let joystickDirX = 0;
         let joystickDirY = 0;
-        let joystickMagnitude = 0;       // 0..1 — насколько сильно отклонён
+        let joystickMagnitude = 0;
 
         // -------- ВИЗУАЛЬНАЯ КНОПКА СМЕНЫ РЕЖИМА --------
         const CTRL_BTN_W = 280;
@@ -136,7 +138,6 @@
             controlModeIndex = (controlModeIndex + 1) % CONTROL_MODES.length;
             controlMode = CONTROL_MODES[controlModeIndex];
 
-            // При выходе из touch сбрасываем джойстик
             if (controlMode !== "touch") {
                 joystickTouchId = null;
                 joystickMouseDown = false;
@@ -156,7 +157,6 @@
             return "rgb(255, 200, 130)";
         }
 
-        // -------- ЛОГИКА ДЖОЙСТИКА --------
         function isInJoystickZone(x, y) {
             const dx = x - JOYSTICK_CX;
             const dy = y - JOYSTICK_CY;
@@ -214,7 +214,43 @@
         let scoreTimer = 0;
         const SCORE_PER_SECOND = 10;
 
-        // -------- РЕСТАРТ --------
+        // -------- МЯГКИЙ СБРОС (без перезагрузки) --------
+        function softReset() {
+            // Очищаем всех врагов и эффекты
+            enemies.length = 0;
+            triangles.length = 0;
+            planes.length = 0;
+            explosions.length = 0;
+            skidMarks.length = 0;
+
+            // Возвращаем игрока в центр
+            px = WIDTH / 2;
+            py = HEIGHT / 2;
+
+            // Сбрасываем таймеры спавна
+            spawnTimer = 0;
+            speedupTimer = 0;
+            triangleSpawnTimer = 0;
+            planeSpawnTimer = 0;
+
+            // Возвращаем начальный интервал
+            SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
+
+            // Сбрасываем таймер счёта — очки не капают «внезапно»
+            scoreTimer = 0;
+
+            // Оживляем игрока, если он был мёртв
+            isDead = false;
+
+            // Сбрасываем джойстик, если он был захвачен
+            joystickTouchId = null;
+            joystickMouseDown = false;
+            resetJoystick();
+
+            // Режим управления, счёт и рекорд — НЕ трогаем
+        }
+
+        // -------- ПОЛНАЯ ПЕРЕЗАГРУЗКА (для кнопки в углу) --------
         function restartGame() {
             location.reload();
         }
@@ -224,8 +260,9 @@
             const k = e.key.toLowerCase();
             keys[k] = true;
 
+            // R — мягкий сброс, БЕЗ перезагрузки
             if (k === "r" || k === "к") {
-                restartGame();
+                softReset();
             }
             if (k === "q" || k === "й") {
                 cycleControlMode();
@@ -260,13 +297,11 @@
             updateMouse(e);
             const p = canvasCoords(e.clientX, e.clientY);
 
-            // Кнопка смены режима — работает всегда
             if (isOnCtrlButton(p.x, p.y)) {
                 ctrlBtnPressed = true;
                 return;
             }
 
-            // Джойстик — только в режиме touch
             if (controlMode === "touch" && isInJoystickZone(p.x, p.y)) {
                 joystickMouseDown = true;
                 setJoystickFromPoint(p.x, p.y);
@@ -300,13 +335,11 @@
             for (const t of e.changedTouches) {
                 const pos = touchToCanvas(t);
 
-                // Смена режима — по тапу на кнопку
                 if (isOnCtrlButton(pos.x, pos.y)) {
                     cycleControlMode();
                     continue;
                 }
 
-                // Захват джойстика — если ещё не захвачен и палец в зоне
                 if (controlMode === "touch" && joystickTouchId === null && isInJoystickZone(pos.x, pos.y)) {
                     joystickTouchId = t.identifier;
                     setJoystickFromPoint(pos.x, pos.y);
@@ -398,7 +431,6 @@
         function drawJoystick() {
             const active = joystickTouchId !== null || joystickMouseDown;
 
-            // Внешний круг базы
             ctx.beginPath();
             ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS, 0, Math.PI * 2);
             ctx.fillStyle = "rgba(60, 100, 160, 0.25)";
@@ -408,14 +440,12 @@
             ctx.strokeStyle = "rgba(120, 170, 230, 0.55)";
             ctx.stroke();
 
-            // Внутреннее кольцо — визуальный ориентир
             ctx.beginPath();
             ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS * 0.5, 0, Math.PI * 2);
             ctx.lineWidth = 1;
             ctx.strokeStyle = "rgba(120, 170, 230, 0.25)";
             ctx.stroke();
 
-            // Линия от центра к шляпке
             if (joystickMagnitude > 0.05) {
                 ctx.beginPath();
                 ctx.moveTo(JOYSTICK_CX, JOYSTICK_CY);
@@ -427,7 +457,6 @@
                 ctx.stroke();
             }
 
-            // Шляпка
             ctx.beginPath();
             ctx.arc(joystickKnobX, joystickKnobY, JOYSTICK_KNOB_RADIUS, 0, Math.PI * 2);
             ctx.fillStyle = active
@@ -441,7 +470,6 @@
                 : "rgba(140, 190, 240, 0.7)";
             ctx.stroke();
 
-            // Маленький индикатор направления внутри шляпки
             if (joystickMagnitude > 0.1) {
                 const dotX = joystickKnobX + joystickDirX * 18;
                 const dotY = joystickKnobY + joystickDirY * 18;
@@ -636,17 +664,14 @@
                         }
                     }
                 } else {
-                    // Джойстик
                     if (joystickMagnitude > JOYSTICK_DEADZONE &&
                         (joystickDirX !== 0 || joystickDirY !== 0)) {
 
                         if (JOYSTICK_ANALOG) {
-                            // Аналоговый режим: скорость пропорциональна отклонению
                             const eff = Math.min(1, (joystickMagnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE));
                             px += joystickDirX * SPEED * eff * dt;
                             py += joystickDirY * SPEED * eff * dt;
                         } else {
-                            // Полная скорость при выходе из мёртвой зоны
                             px += joystickDirX * SPEED * dt;
                             py += joystickDirY * SPEED * dt;
                         }
@@ -1051,7 +1076,6 @@
                 ctx.stroke();
             }
 
-            // Джойстик
             if (controlMode === "touch" && !isDead) {
                 drawJoystick();
             }
@@ -1073,6 +1097,11 @@
             ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 82);
             ctx.fillText("Треугольников: " + triangles.length, 16, 102);
             ctx.fillText("Ракет: " + planes.length, 16, 120);
+
+            // Подсказка про R — мягкий сброс
+            ctx.fillStyle = "rgba(180, 210, 240, 0.85)";
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillText("R — сброс уровня (без перезагрузки)", 16, 146);
 
             drawCtrlButton(now);
 
@@ -1103,7 +1132,7 @@
 
                 ctx.fillStyle = "rgb(200, 200, 220)";
                 ctx.font = "22px sans-serif";
-                ctx.fillText("Нажми R чтобы перезапустить", WIDTH / 2, HEIGHT / 2 + 130);
+                ctx.fillText("Нажми R чтобы сбросить уровень", WIDTH / 2, HEIGHT / 2 + 130);
             }
 
             requestAnimationFrame(loop);
