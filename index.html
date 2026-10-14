@@ -100,22 +100,97 @@
         let mouseY = HEIGHT / 2;
         const MOUSE_DEADZONE = 4;
 
-        // -------- ВИРТУАЛЬНЫЙ D-PAD (увеличенный) --------
-        const DPAD_SIZE = 130;      // было 80 — кнопки крупнее
-        const DPAD_GAP = 12;        // было 8 — промежутки шире
-        const DPAD_MARGIN = 40;     // было 30 — отступ от краёв больше
+        // -------- ВИРТУАЛЬНЫЙ ДЖОЙСТИК --------
+        const JOYSTICK_BASE_RADIUS = 120;                                            // радиус внешнего круга
+        const JOYSTICK_KNOB_RADIUS = 55;                                             // радиус шляпки
+        const JOYSTICK_MAX_DIST = JOYSTICK_BASE_RADIUS - 12;                         // макс. смещение шляпки
+        const JOYSTICK_MARGIN = 60;                                                  // отступ от краёв
+        const JOYSTICK_GRAB_RADIUS = JOYSTICK_BASE_RADIUS * 1.4;                     // зона захвата пальцем
+        const JOYSTICK_DEADZONE = 0.15;                                              // 15% — минимальное отклонение
+        const JOYSTICK_ANALOG = false;                                               // true — скорость пропорциональна, false — всегда максимум
 
-        const DPAD_CX = DPAD_MARGIN + DPAD_SIZE / 2 + DPAD_GAP + DPAD_SIZE;             // 247
-        const DPAD_CY = HEIGHT - DPAD_MARGIN - DPAD_SIZE / 2 - DPAD_GAP - DPAD_SIZE;    // HEIGHT - 247
+        const JOYSTICK_CX = JOYSTICK_MARGIN + JOYSTICK_BASE_RADIUS;
+        const JOYSTICK_CY = HEIGHT - JOYSTICK_MARGIN - JOYSTICK_BASE_RADIUS;
 
-        const dpadButtons = [
-            { id: "up",    cx: DPAD_CX, cy: DPAD_CY - (DPAD_SIZE + DPAD_GAP), size: DPAD_SIZE },
-            { id: "down",  cx: DPAD_CX, cy: DPAD_CY + (DPAD_SIZE + DPAD_GAP), size: DPAD_SIZE },
-            { id: "left",  cx: DPAD_CX - (DPAD_SIZE + DPAD_GAP), cy: DPAD_CY, size: DPAD_SIZE },
-            { id: "right", cx: DPAD_CX + (DPAD_SIZE + DPAD_GAP), cy: DPAD_CY, size: DPAD_SIZE },
-        ];
+        let joystickTouchId = null;      // идентификатор касания, которое управляет джойстиком
+        let joystickMouseDown = false;   // для теста мышью
+        let joystickKnobX = JOYSTICK_CX;
+        let joystickKnobY = JOYSTICK_CY;
+        let joystickDirX = 0;
+        let joystickDirY = 0;
+        let joystickMagnitude = 0;       // 0..1 — насколько сильно отклонён
 
-        const touchState = { up: false, down: false, left: false, right: false };
+        // -------- ВИЗУАЛЬНАЯ КНОПКА СМЕНЫ РЕЖИМА --------
+        const CTRL_BTN_W = 280;
+        const CTRL_BTN_H = 68;
+        const CTRL_BTN_X = WIDTH - 16 - CTRL_BTN_W;
+        const CTRL_BTN_Y = 16;
+        let ctrlBtnPressed = false;
+
+        function isOnCtrlButton(x, y) {
+            return x >= CTRL_BTN_X && x <= CTRL_BTN_X + CTRL_BTN_W &&
+                   y >= CTRL_BTN_Y && y <= CTRL_BTN_Y + CTRL_BTN_H;
+        }
+
+        function cycleControlMode() {
+            controlModeIndex = (controlModeIndex + 1) % CONTROL_MODES.length;
+            controlMode = CONTROL_MODES[controlModeIndex];
+
+            // При выходе из touch сбрасываем джойстик
+            if (controlMode !== "touch") {
+                joystickTouchId = null;
+                joystickMouseDown = false;
+                resetJoystick();
+            }
+        }
+
+        function getModeText() {
+            if (controlMode === "keyboard") return "WASD";
+            if (controlMode === "mouse") return "МЫШЬ";
+            return "ДЖОЙСТИК";
+        }
+
+        function getModeColor() {
+            if (controlMode === "keyboard") return "rgb(160, 220, 180)";
+            if (controlMode === "mouse") return "rgb(160, 200, 255)";
+            return "rgb(255, 200, 130)";
+        }
+
+        // -------- ЛОГИКА ДЖОЙСТИКА --------
+        function isInJoystickZone(x, y) {
+            const dx = x - JOYSTICK_CX;
+            const dy = y - JOYSTICK_CY;
+            return (dx * dx + dy * dy) <= JOYSTICK_GRAB_RADIUS * JOYSTICK_GRAB_RADIUS;
+        }
+
+        function setJoystickFromPoint(x, y) {
+            const rawDx = x - JOYSTICK_CX;
+            const rawDy = y - JOYSTICK_CY;
+            const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+
+            if (rawDist < 0.001) {
+                resetJoystick();
+                return;
+            }
+
+            const dirX = rawDx / rawDist;
+            const dirY = rawDy / rawDist;
+            const clampedDist = Math.min(rawDist, JOYSTICK_MAX_DIST);
+
+            joystickKnobX = JOYSTICK_CX + dirX * clampedDist;
+            joystickKnobY = JOYSTICK_CY + dirY * clampedDist;
+            joystickDirX = dirX;
+            joystickDirY = dirY;
+            joystickMagnitude = Math.min(1, rawDist / JOYSTICK_MAX_DIST);
+        }
+
+        function resetJoystick() {
+            joystickKnobX = JOYSTICK_CX;
+            joystickKnobY = JOYSTICK_CY;
+            joystickDirX = 0;
+            joystickDirY = 0;
+            joystickMagnitude = 0;
+        }
 
         let px = WIDTH / 2;
         let py = HEIGHT / 2;
@@ -153,8 +228,7 @@
                 restartGame();
             }
             if (k === "q" || k === "й") {
-                controlModeIndex = (controlModeIndex + 1) % CONTROL_MODES.length;
-                controlMode = CONTROL_MODES[controlModeIndex];
+                cycleControlMode();
             }
         });
 
@@ -162,7 +236,7 @@
             keys[e.key.toLowerCase()] = false;
         });
 
-        // -------- МЫШЬ --------
+        // -------- КООРДИНАТЫ --------
         function canvasCoords(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
             const scaleX = WIDTH / rect.width;
@@ -181,64 +255,42 @@
 
         canvas.addEventListener("mousemove", updateMouse);
 
-        // -------- КНОПКИ D-PAD ПОД МЫШЬ --------
-        function getButtonAt(x, y) {
-            for (const btn of dpadButtons) {
-                const half = btn.size / 2;
-                if (x >= btn.cx - half && x <= btn.cx + half &&
-                    y >= btn.cy - half && y <= btn.cy + half) {
-                    return btn.id;
-                }
-            }
-            return null;
-        }
-
-        let mouseDownOnButton = null;
-
+        // -------- МЫШЬ --------
         canvas.addEventListener("mousedown", (e) => {
             updateMouse(e);
-            if (controlMode !== "touch") return;
             const p = canvasCoords(e.clientX, e.clientY);
-            const btn = getButtonAt(p.x, p.y);
-            mouseDownOnButton = btn;
-            updateTouchStateFromMouse();
+
+            // Кнопка смены режима — работает всегда
+            if (isOnCtrlButton(p.x, p.y)) {
+                ctrlBtnPressed = true;
+                return;
+            }
+
+            // Джойстик — только в режиме touch
+            if (controlMode === "touch" && isInJoystickZone(p.x, p.y)) {
+                joystickMouseDown = true;
+                setJoystickFromPoint(p.x, p.y);
+            }
         });
 
         canvas.addEventListener("mousemove", (e) => {
-            if (controlMode !== "touch" || !mouseDownOnButton) return;
+            if (!joystickMouseDown) return;
             const p = canvasCoords(e.clientX, e.clientY);
-            mouseDownOnButton = getButtonAt(p.x, p.y);
-            updateTouchStateFromMouse();
+            setJoystickFromPoint(p.x, p.y);
         });
 
         window.addEventListener("mouseup", () => {
-            if (!mouseDownOnButton) return;
-            mouseDownOnButton = null;
-            updateTouchStateFromMouse();
+            if (ctrlBtnPressed) {
+                ctrlBtnPressed = false;
+                cycleControlMode();
+            }
+            if (joystickMouseDown) {
+                joystickMouseDown = false;
+                resetJoystick();
+            }
         });
 
-        function updateTouchStateFromMouse() {
-            touchState.up = mouseDownOnButton === "up";
-            touchState.down = mouseDownOnButton === "down";
-            touchState.left = mouseDownOnButton === "left";
-            touchState.right = mouseDownOnButton === "right";
-        }
-
         // -------- КАСАНИЯ --------
-        const activeTouches = new Map();
-
-        function updateTouchStateFromTouches() {
-            touchState.up = false;
-            touchState.down = false;
-            touchState.left = false;
-            touchState.right = false;
-
-            for (const pos of activeTouches.values()) {
-                const btn = getButtonAt(pos.x, pos.y);
-                if (btn) touchState[btn] = true;
-            }
-        }
-
         function touchToCanvas(touch) {
             return canvasCoords(touch.clientX, touch.clientY);
         }
@@ -246,34 +298,49 @@
         canvas.addEventListener("touchstart", (e) => {
             e.preventDefault();
             for (const t of e.changedTouches) {
-                activeTouches.set(t.identifier, touchToCanvas(t));
+                const pos = touchToCanvas(t);
+
+                // Смена режима — по тапу на кнопку
+                if (isOnCtrlButton(pos.x, pos.y)) {
+                    cycleControlMode();
+                    continue;
+                }
+
+                // Захват джойстика — если ещё не захвачен и палец в зоне
+                if (controlMode === "touch" && joystickTouchId === null && isInJoystickZone(pos.x, pos.y)) {
+                    joystickTouchId = t.identifier;
+                    setJoystickFromPoint(pos.x, pos.y);
+                }
             }
-            updateTouchStateFromTouches();
         }, { passive: false });
 
         canvas.addEventListener("touchmove", (e) => {
             e.preventDefault();
             for (const t of e.changedTouches) {
-                if (activeTouches.has(t.identifier)) {
-                    activeTouches.set(t.identifier, touchToCanvas(t));
+                if (t.identifier === joystickTouchId) {
+                    const pos = touchToCanvas(t);
+                    setJoystickFromPoint(pos.x, pos.y);
                 }
             }
-            updateTouchStateFromTouches();
         }, { passive: false });
 
         canvas.addEventListener("touchend", (e) => {
             e.preventDefault();
             for (const t of e.changedTouches) {
-                activeTouches.delete(t.identifier);
+                if (t.identifier === joystickTouchId) {
+                    joystickTouchId = null;
+                    resetJoystick();
+                }
             }
-            updateTouchStateFromTouches();
         }, { passive: false });
 
         canvas.addEventListener("touchcancel", (e) => {
             for (const t of e.changedTouches) {
-                activeTouches.delete(t.identifier);
+                if (t.identifier === joystickTouchId) {
+                    joystickTouchId = null;
+                    resetJoystick();
+                }
             }
-            updateTouchStateFromTouches();
         });
 
         document.getElementById("restartBtn").addEventListener("click", restartGame);
@@ -327,63 +394,109 @@
             ctx.restore();
         }
 
-        // -------- РИСОВАНИЕ D-PAD --------
-        function drawDpadButton(btn, pressed) {
-            const half = btn.size / 2;
-            const x = btn.cx - half;
-            const y = btn.cy - half;
+        // -------- РИСОВАНИЕ ДЖОЙСТИКА --------
+        function drawJoystick() {
+            const active = joystickTouchId !== null || joystickMouseDown;
 
-            // Фон кнопки
+            // Внешний круг базы
             ctx.beginPath();
-            if (ctx.roundRect) {
-                ctx.roundRect(x, y, btn.size, btn.size, 24);
-            } else {
-                ctx.rect(x, y, btn.size, btn.size);
-            }
-            ctx.fillStyle = pressed
-                ? "rgba(120, 200, 255, 0.6)"
-                : "rgba(60, 100, 160, 0.4)";
+            ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(60, 100, 160, 0.25)";
             ctx.fill();
 
             ctx.lineWidth = 3;
-            ctx.strokeStyle = pressed
-                ? "rgba(200, 235, 255, 0.95)"
-                : "rgba(120, 170, 230, 0.65)";
+            ctx.strokeStyle = "rgba(120, 170, 230, 0.55)";
             ctx.stroke();
 
-            // Стрелка — размер пропорционален кнопке
-            const a = btn.size * 0.24;
+            // Внутреннее кольцо — визуальный ориентир
             ctx.beginPath();
+            ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS * 0.5, 0, Math.PI * 2);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "rgba(120, 170, 230, 0.25)";
+            ctx.stroke();
 
-            if (btn.id === "up") {
-                ctx.moveTo(btn.cx, btn.cy - a);
-                ctx.lineTo(btn.cx - a, btn.cy + a * 0.6);
-                ctx.lineTo(btn.cx + a, btn.cy + a * 0.6);
-            } else if (btn.id === "down") {
-                ctx.moveTo(btn.cx, btn.cy + a);
-                ctx.lineTo(btn.cx - a, btn.cy - a * 0.6);
-                ctx.lineTo(btn.cx + a, btn.cy - a * 0.6);
-            } else if (btn.id === "left") {
-                ctx.moveTo(btn.cx - a, btn.cy);
-                ctx.lineTo(btn.cx + a * 0.6, btn.cy - a);
-                ctx.lineTo(btn.cx + a * 0.6, btn.cy + a);
-            } else {
-                ctx.moveTo(btn.cx + a, btn.cy);
-                ctx.lineTo(btn.cx - a * 0.6, btn.cy - a);
-                ctx.lineTo(btn.cx - a * 0.6, btn.cy + a);
+            // Линия от центра к шляпке
+            if (joystickMagnitude > 0.05) {
+                ctx.beginPath();
+                ctx.moveTo(JOYSTICK_CX, JOYSTICK_CY);
+                ctx.lineTo(joystickKnobX, joystickKnobY);
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = active
+                    ? "rgba(180, 220, 255, 0.7)"
+                    : "rgba(150, 200, 255, 0.35)";
+                ctx.stroke();
             }
-            ctx.closePath();
 
-            ctx.fillStyle = pressed
-                ? "rgb(240, 250, 255)"
-                : "rgba(190, 225, 255, 0.9)";
+            // Шляпка
+            ctx.beginPath();
+            ctx.arc(joystickKnobX, joystickKnobY, JOYSTICK_KNOB_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = active
+                ? "rgba(120, 200, 255, 0.65)"
+                : "rgba(90, 150, 220, 0.45)";
             ctx.fill();
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = active
+                ? "rgba(220, 240, 255, 0.95)"
+                : "rgba(140, 190, 240, 0.7)";
+            ctx.stroke();
+
+            // Маленький индикатор направления внутри шляпки
+            if (joystickMagnitude > 0.1) {
+                const dotX = joystickKnobX + joystickDirX * 18;
+                const dotY = joystickKnobY + joystickDirY * 18;
+                ctx.beginPath();
+                ctx.arc(dotX, dotY, 6, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+                ctx.fill();
+            }
         }
 
-        function drawDpad() {
-            for (const btn of dpadButtons) {
-                drawDpadButton(btn, touchState[btn.id]);
+        // -------- РИСОВАНИЕ КНОПКИ СМЕНЫ РЕЖИМА --------
+        function drawCtrlButton(now) {
+            const modeText = getModeText();
+            const modeColor = getModeColor();
+            const pressed = ctrlBtnPressed;
+
+            const glow = 0.5 + 0.5 * Math.sin(now / 400);
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H, 12);
+            } else {
+                ctx.rect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H);
             }
+
+            if (pressed) {
+                ctx.fillStyle = "rgba(90, 150, 220, 0.9)";
+            } else {
+                ctx.fillStyle = "rgba(30, 55, 100, 0.65)";
+            }
+            ctx.fill();
+
+            ctx.lineWidth = 2;
+            if (pressed) {
+                ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+            } else {
+                const r = 80 + Math.round(40 * glow);
+                const g = 140 + Math.round(50 * glow);
+                const b = 200 + Math.round(40 * glow);
+                ctx.strokeStyle = "rgba(" + r + ", " + g + ", " + b + ", 0.9)";
+            }
+            ctx.stroke();
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = modeColor;
+            ctx.font = "bold 22px sans-serif";
+            ctx.fillText("Управление: " + modeText, CTRL_BTN_X + CTRL_BTN_W / 2, CTRL_BTN_Y + 24);
+
+            ctx.fillStyle = "rgba(200, 220, 245, 0.75)";
+            ctx.font = "13px sans-serif";
+            ctx.fillText("Нажми, чтобы сменить (или Q)", CTRL_BTN_X + CTRL_BTN_W / 2, CTRL_BTN_Y + 48);
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
         }
 
         // -------- СПАВН ЖЁЛТОГО ШАРА --------
@@ -490,7 +603,6 @@
             lastTime = now;
 
             if (!isDead) {
-                // -------- ДВИЖЕНИЕ ИГРОКА --------
                 let dx = 0;
                 let dy = 0;
 
@@ -524,19 +636,21 @@
                         }
                     }
                 } else {
-                    if (touchState.left) dx -= 1;
-                    if (touchState.right) dx += 1;
-                    if (touchState.up) dy -= 1;
-                    if (touchState.down) dy += 1;
+                    // Джойстик
+                    if (joystickMagnitude > JOYSTICK_DEADZONE &&
+                        (joystickDirX !== 0 || joystickDirY !== 0)) {
 
-                    if (dx !== 0 && dy !== 0) {
-                        const len = Math.sqrt(dx * dx + dy * dy);
-                        dx /= len;
-                        dy /= len;
+                        if (JOYSTICK_ANALOG) {
+                            // Аналоговый режим: скорость пропорциональна отклонению
+                            const eff = Math.min(1, (joystickMagnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE));
+                            px += joystickDirX * SPEED * eff * dt;
+                            py += joystickDirY * SPEED * eff * dt;
+                        } else {
+                            // Полная скорость при выходе из мёртвой зоны
+                            px += joystickDirX * SPEED * dt;
+                            py += joystickDirY * SPEED * dt;
+                        }
                     }
-
-                    px += dx * SPEED * dt;
-                    py += dy * SPEED * dt;
                 }
 
                 if (px < BALL_RADIUS) px = BALL_RADIUS;
@@ -544,7 +658,6 @@
                 if (py < BALL_RADIUS) py = BALL_RADIUS;
                 if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
 
-                // -------- СЧЁТ --------
                 scoreTimer += dt;
                 if (scoreTimer >= 1) {
                     scoreTimer -= 1;
@@ -555,14 +668,12 @@
                     }
                 }
 
-                // -------- УСКОРЕНИЕ СПАВНА --------
                 speedupTimer += dt;
                 if (speedupTimer >= SPEEDUP_EVERY) {
                     speedupTimer -= SPEEDUP_EVERY;
                     SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
                 }
 
-                // -------- СПАВН --------
                 spawnTimer += dt;
                 if (spawnTimer >= SPAWN_INTERVAL) {
                     spawnTimer -= SPAWN_INTERVAL;
@@ -581,7 +692,7 @@
                     spawnPlane();
                 }
 
-                // -------- ЖЁЛТЫЕ ШАРЫ --------
+                // Жёлтые шары
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
 
@@ -622,14 +733,13 @@
                     }
                 }
 
-                // -------- ТРЕУГОЛЬНИКИ --------
+                // Треугольники
                 if (!isDead) {
                     for (let i = triangles.length - 1; i >= 0; i--) {
                         const t = triangles[i];
 
                         if (t.state === "warning") {
                             t.warningTimer += dt;
-
                             const adx = px - t.x;
                             const ady = py - t.y;
                             const targetAngle = Math.atan2(ady, adx);
@@ -730,7 +840,7 @@
                     }
                 }
 
-                // -------- РАКЕТЫ --------
+                // Ракеты
                 if (!isDead) {
                     for (let i = planes.length - 1; i >= 0; i--) {
                         const p = planes[i];
@@ -769,7 +879,7 @@
                 }
             }
 
-            // -------- ВЗРЫВЫ --------
+            // Взрывы
             for (let i = explosions.length - 1; i >= 0; i--) {
                 const ex = explosions[i];
                 ex.t += dt;
@@ -789,7 +899,7 @@
                 if (ex.t >= ex.duration) explosions.splice(i, 1);
             }
 
-            // -------- СЛЕДЫ --------
+            // Следы
             for (let i = skidMarks.length - 1; i >= 0; i--) {
                 const s = skidMarks[i];
                 s.t += dt;
@@ -941,9 +1051,9 @@
                 ctx.stroke();
             }
 
-            // D-pad в режиме touch
+            // Джойстик
             if (controlMode === "touch" && !isDead) {
-                drawDpad();
+                drawJoystick();
             }
 
             // -------- HUD --------
@@ -964,42 +1074,7 @@
             ctx.fillText("Треугольников: " + triangles.length, 16, 102);
             ctx.fillText("Ракет: " + planes.length, 16, 120);
 
-            ctx.strokeStyle = "rgba(120, 150, 190, 0.35)";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(16, 148);
-            ctx.lineTo(340, 148);
-            ctx.stroke();
-
-            const hintPulse = 0.6 + 0.4 * Math.sin(now / 500);
-            ctx.fillStyle = "rgba(255, 220, 100, " + hintPulse + ")";
-            ctx.font = "bold 16px sans-serif";
-            ctx.fillText("Q — менять режим управления", 16, 160);
-
-            let modeText = "WASD";
-            let modeColor = "rgb(160, 220, 180)";
-            if (controlMode === "mouse") {
-                modeText = "МЫШЬ";
-                modeColor = "rgb(160, 200, 255)";
-            } else if (controlMode === "touch") {
-                modeText = "СТРЕЛКИ";
-                modeColor = "rgb(255, 200, 130)";
-            }
-
-            ctx.fillStyle = modeColor;
-            ctx.font = "bold 16px sans-serif";
-            ctx.fillText("Сейчас: " + modeText, 16, 184);
-
-            ctx.textAlign = "right";
-            ctx.fillStyle = modeColor;
-            ctx.font = "bold 20px sans-serif";
-            ctx.fillText("Управление: " + modeText, WIDTH - 16, 16);
-
-            ctx.fillStyle = "rgb(140, 170, 210)";
-            ctx.font = "14px sans-serif";
-            ctx.fillText("Q — переключить", WIDTH - 16, 44);
-
-            ctx.textAlign = "left";
+            drawCtrlButton(now);
 
             if (isDead) {
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
