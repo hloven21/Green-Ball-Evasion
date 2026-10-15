@@ -83,13 +83,192 @@
                 background: rgba(40, 90, 160, 0.85);
             }
         }
+
+        /* ===== Ник-оверлей ===== */
+        #nickOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            font-family: sans-serif;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #nickOverlay.show {
+            display: flex;
+        }
+        #nickBox {
+            background: #1a2a4a;
+            border: 2px solid #4a80c0;
+            border-radius: 14px;
+            padding: 26px;
+            text-align: center;
+            width: min(92vw, 380px);
+            box-sizing: border-box;
+            box-shadow: 0 0 40px rgba(60, 120, 220, 0.4);
+        }
+        #nickTitle {
+            color: #d0e5ff;
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+        #nickHint {
+            color: #8aa8c8;
+            font-size: 14px;
+            margin-bottom: 18px;
+        }
+        #nickInput {
+            width: 100%;
+            padding: 12px 14px;
+            font-size: 18px;
+            border-radius: 10px;
+            border: 2px solid #4a80c0;
+            background: #0a1020;
+            color: #fff;
+            box-sizing: border-box;
+            margin-bottom: 14px;
+            outline: none;
+            font-family: inherit;
+        }
+        #nickInput:focus {
+            border-color: #78b0ff;
+            box-shadow: 0 0 0 3px rgba(120, 176, 255, 0.2);
+        }
+        #nickBtn {
+            width: 100%;
+            padding: 12px;
+            background: #2a6aba;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.15s;
+        }
+        #nickBtn:hover {
+            background: #3a80d0;
+        }
+        #nickBtn:active {
+            background: #1e5090;
+        }
     </style>
 </head>
 <body>
-    <button id="restartBtn">↻ Полная перезагрузка</button>
+    <button id="restartBtn" style="display: none;">↻ Полная перезагрузка</button>
     <canvas id="game"></canvas>
 
+    <div id="nickOverlay">
+        <div id="nickBox">
+            <div id="nickTitle">Введи свой ник</div>
+            <div id="nickHint">Он будет виден в таблице лидеров</div>
+            <input id="nickInput" maxlength="16" placeholder="до 16 символов" autocomplete="off">
+            <button id="nickBtn">OK</button>
+        </div>
+    </div>
+
     <script>
+        // ===== СИСТЕМА НИКА =====
+        const nickOverlay = document.getElementById("nickOverlay");
+        const nickInput = document.getElementById("nickInput");
+        const nickBtn = document.getElementById("nickBtn");
+
+        let nickname = localStorage.getItem("nickname") || "";
+        let pendingAfterNick = null;
+
+        function showNickInput(callback) {
+            pendingAfterNick = callback || null;
+            nickInput.value = nickname;
+            nickOverlay.classList.add("show");
+            setTimeout(() => {
+                try { nickInput.focus(); } catch (e) {}
+            }, 50);
+        }
+
+        function hideNickInput() {
+            nickOverlay.classList.remove("show");
+        }
+
+        function submitNick() {
+            const v = (nickInput.value || "").trim().slice(0, 16);
+            if (!v) {
+                nickInput.style.borderColor = "#ff6a6a";
+                setTimeout(() => { nickInput.style.borderColor = ""; }, 400);
+                return;
+            }
+            nickname = v;
+            localStorage.setItem("nickname", nickname);
+            hideNickInput();
+            const cb = pendingAfterNick;
+            pendingAfterNick = null;
+            if (cb) cb();
+        }
+
+        nickBtn.addEventListener("click", submitNick);
+        nickInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                submitNick();
+            }
+        });
+
+        // ===== ТАБЛИЦА ЛИДЕРОВ =====
+        const LEADERBOARD_KEY = "leaderboard";
+
+        function loadLeaderboard() {
+            try {
+                const raw = localStorage.getItem(LEADERBOARD_KEY);
+                if (!raw) return [];
+                const arr = JSON.parse(raw);
+                if (!Array.isArray(arr)) return [];
+                return arr;
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveLeaderboard(arr) {
+            try {
+                localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(arr));
+            } catch (e) {}
+        }
+
+        // Добавляет результат. Если ник уже есть — обновит, если счёт выше.
+        function addScoreToLeaderboard(nick, score, difficulty) {
+            if (!nick) return;
+            if (score <= 0) return;
+
+            const lb = loadLeaderboard();
+            const lower = nick.toLowerCase();
+            const existing = lb.find(e => (e.nick || "").toLowerCase() === lower);
+
+            if (existing) {
+                if (score > existing.score) {
+                    existing.score = score;
+                    existing.difficulty = difficulty;
+                    existing.date = Date.now();
+                }
+            } else {
+                lb.push({
+                    nick: nick,
+                    score: score,
+                    difficulty: difficulty,
+                    date: Date.now(),
+                });
+            }
+
+            lb.sort((a, b) => b.score - a.score);
+            const top = lb.slice(0, 50);
+            saveLeaderboard(top);
+        }
+
+        // ===== ДАЛЬШЕ ИДЁТ ИГРА (без изменений) =====
+
         // ---------- ОПРЕДЕЛЕНИЕ УСТРОЙСТВА ----------
         const uaIsMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
         const hasTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
@@ -99,7 +278,6 @@
         const canvas = document.getElementById("game");
         const ctx = canvas.getContext("2d");
 
-        // ---------- РАЗМЕР ПОЛЯ ----------
         let WIDTH, HEIGHT;
 
         if (mobileDevice) {
@@ -158,11 +336,10 @@
         const PLANE_SIZE = 16;
         const PLANE_SPAWN_INTERVAL = 1.75;
         const PLANE_EXPLOSION_RADIUS = BALL_RADIUS * 6;
-        const PLANE_DANGER_DELAY = 0.5;
+        const PLANE_DANGER_DELAY = 0.20;
 
         const PLANE_MAX_PATH = 1600;
 
-        // ---------- СКОРОСТИ ----------
         let ENEMY_SPEED = 320;
         let TRIANGLE_SPEED = 210;
         let PLANE_SPEED = 210;
@@ -219,6 +396,12 @@
         let infoOpen = false;
         let infoCloseBtnPressed = false;
 
+        // -------- КНОПКА МЕНЮ (в игре) --------
+        const MENU_BTN_SIZE = 50;
+        const MENU_BTN_GAME_X = WIDTH - 16 - INFO_BTN_SIZE - 10 - MENU_BTN_SIZE;
+        const MENU_BTN_GAME_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
+        let menuBtnPressed = false;
+
         // -------- ПАНЕЛЬ ИНФОРМАЦИИ --------
         const INFO_PANEL_W = Math.min(WIDTH - 40, 700);
         const INFO_PANEL_H = Math.min(HEIGHT - 80, 760);
@@ -230,7 +413,6 @@
         const INFO_CLOSE_X = WIDTH / 2 - INFO_CLOSE_W / 2;
         const INFO_CLOSE_Y = INFO_PANEL_Y + INFO_PANEL_H - INFO_CLOSE_H - 24;
 
-        // -------- РАЗМЕТКА СЕКЦИИ СЛОЖНОСТИ --------
         const DIFF_PAD = 36;
         const DIFF_AVAIL_W = INFO_PANEL_W - DIFF_PAD * 2;
         const DIFF_BTN_GAP = 20;
@@ -246,6 +428,11 @@
         function isOnInfoBtn(x, y) {
             return x >= INFO_BTN_X && x <= INFO_BTN_X + INFO_BTN_SIZE &&
                    y >= INFO_BTN_Y && y <= INFO_BTN_Y + INFO_BTN_SIZE;
+        }
+
+        function isOnMenuBtnGame(x, y) {
+            return x >= MENU_BTN_GAME_X && x <= MENU_BTN_GAME_X + MENU_BTN_SIZE &&
+                   y >= MENU_BTN_GAME_Y && y <= MENU_BTN_GAME_Y + MENU_BTN_SIZE;
         }
 
         function isOnInfoClose(x, y) {
@@ -372,11 +559,95 @@
         let triangleSpawnTimer = 0;
         let planeSpawnTimer = 0;
         let isDead = false;
+        let scoreSavedThisLife = false;
 
-        // -------- СЧЁТ --------
         let score = 0;
         let scoreTimer = 0;
         const SCORE_PER_SECOND = 10;
+
+        // ---------- ГЛАВНОЕ МЕНЮ ----------
+        let menuState = "main";
+
+        const MENU_BTN_W = Math.min(WIDTH - 80, 420);
+        const MENU_BTN_H = 80;
+        const MENU_BTN_GAP = 24;
+        const MENU_BTN_X = (WIDTH - MENU_BTN_W) / 2;
+
+        const restartBtn = document.getElementById("restartBtn");
+
+        function updateRestartBtnVisibility() {
+            restartBtn.style.display = (menuState === "game") ? "" : "none";
+        }
+
+        function isInRect(x, y, r) {
+            return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        }
+
+        function getMainMenuButtons() {
+            const top = HEIGHT * 0.45;
+            return [
+                { id: "play",    label: "Играть",           x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
+                { id: "leaders", label: "Таблица лидеров",  x: MENU_BTN_X, y: top + MENU_BTN_H + MENU_BTN_GAP, w: MENU_BTN_W, h: MENU_BTN_H },
+            ];
+        }
+
+        function getPlayMenuButtons() {
+            const top = HEIGHT * 0.38;
+            return [
+                { id: "endless", label: "Бесконечно", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
+                { id: "levels",  label: "Уровни",     x: MENU_BTN_X, y: top + MENU_BTN_H + MENU_BTN_GAP, w: MENU_BTN_W, h: MENU_BTN_H, disabled: true },
+                { id: "back",    label: "← Назад",    x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H },
+            ];
+        }
+
+        function getLeaderboardButtons() {
+            return [
+                { id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.82, w: MENU_BTN_W, h: MENU_BTN_H },
+            ];
+        }
+
+        function getActiveMenuButtons() {
+            if (menuState === "main") return getMainMenuButtons();
+            if (menuState === "play_menu") return getPlayMenuButtons();
+            if (menuState === "leaderboard") return getLeaderboardButtons();
+            return [];
+        }
+
+        function dispatchMenuAction(id) {
+            if (id === "play") {
+                menuState = "play_menu";
+            } else if (id === "leaders") {
+                if (!nickname) {
+                    showNickInput(() => { menuState = "leaderboard"; });
+                } else {
+                    menuState = "leaderboard";
+                }
+            } else if (id === "endless") {
+                softReset();
+                menuState = "game";
+                updateRestartBtnVisibility();
+            } else if (id === "back") {
+                menuState = "main";
+            }
+        }
+
+        function handleMenuClick(x, y) {
+            const buttons = getActiveMenuButtons();
+            for (const b of buttons) {
+                if (b.disabled) continue;
+                if (isInRect(x, y, b)) {
+                    dispatchMenuAction(b.id);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function goToMainMenu() {
+            menuState = "main";
+            infoOpen = false;
+            updateRestartBtnVisibility();
+        }
 
         // -------- МЯГКИЙ СБРОС --------
         function softReset() {
@@ -396,8 +667,11 @@
 
             SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
 
+            score = 0;
             scoreTimer = 0;
+
             isDead = false;
+            scoreSavedThisLife = false;
 
             joystickTouchId = null;
             joystickMouseDown = false;
@@ -408,7 +682,6 @@
             location.reload();
         }
 
-        // -------- СМЕНА СЛОЖНОСТИ --------
         function setDifficulty(newDiff) {
             if (newDiff === difficulty) return;
             difficulty = newDiff;
@@ -421,14 +694,28 @@
 
         // -------- КЛАВИАТУРА --------
         window.addEventListener("keydown", (e) => {
+            if (nickOverlay.classList.contains("show")) return;
+
             const k = e.key.toLowerCase();
             keys[k] = true;
 
-            if (k === "escape" && infoOpen) {
-                infoOpen = false;
+            if (k === "escape") {
+                if (infoOpen) {
+                    infoOpen = false;
+                    return;
+                }
+                if (menuState === "game") {
+                    goToMainMenu();
+                    return;
+                }
+                if (menuState === "play_menu" || menuState === "leaderboard") {
+                    menuState = "main";
+                    return;
+                }
                 return;
             }
 
+            if (menuState !== "game") return;
             if (infoOpen) return;
 
             if (k === "r" || k === "к") {
@@ -464,8 +751,14 @@
 
         // -------- МЫШЬ --------
         canvas.addEventListener("mousedown", (e) => {
+            if (nickOverlay.classList.contains("show")) return;
             updateMouse(e);
             const p = canvasCoords(e.clientX, e.clientY);
+
+            if (menuState !== "game") {
+                handleMenuClick(p.x, p.y);
+                return;
+            }
 
             if (infoOpen) {
                 if (isOnInfoClose(p.x, p.y)) {
@@ -493,6 +786,11 @@
                 return;
             }
 
+            if (isOnMenuBtnGame(p.x, p.y)) {
+                menuBtnPressed = true;
+                return;
+            }
+
             if (controlMode === "touch" && isInJoystickZone(p.x, p.y)) {
                 joystickMouseDown = true;
                 setJoystickFromPoint(p.x, p.y);
@@ -500,6 +798,7 @@
         });
 
         canvas.addEventListener("mousemove", (e) => {
+            if (menuState !== "game") return;
             if (infoOpen) return;
             if (!joystickMouseDown) return;
             const p = canvasCoords(e.clientX, e.clientY);
@@ -515,6 +814,11 @@
             if (infoBtnPressed) {
                 infoBtnPressed = false;
                 infoOpen = true;
+                return;
+            }
+            if (menuBtnPressed) {
+                menuBtnPressed = false;
+                goToMainMenu();
                 return;
             }
             if (ctrlBtnPressed) {
@@ -534,11 +838,17 @@
         }
 
         canvas.addEventListener("touchstart", (e) => {
+            if (nickOverlay.classList.contains("show")) return;
             enterFullscreenOnMobile();
             e.preventDefault();
 
             for (const t of e.changedTouches) {
                 const pos = touchToCanvas(t);
+
+                if (menuState !== "game") {
+                    handleMenuClick(pos.x, pos.y);
+                    continue;
+                }
 
                 if (infoOpen) {
                     if (isOnInfoClose(pos.x, pos.y)) {
@@ -553,6 +863,11 @@
                     if (!isOnInfoPanel(pos.x, pos.y)) {
                         infoOpen = false;
                     }
+                    continue;
+                }
+
+                if (isOnMenuBtnGame(pos.x, pos.y)) {
+                    goToMainMenu();
                     continue;
                 }
 
@@ -574,7 +889,9 @@
         }, { passive: false });
 
         canvas.addEventListener("touchmove", (e) => {
+            if (nickOverlay.classList.contains("show")) return;
             e.preventDefault();
+            if (menuState !== "game") return;
             if (infoOpen) return;
             for (const t of e.changedTouches) {
                 if (t.identifier === joystickTouchId) {
@@ -604,8 +921,6 @@
         });
 
         // -------- HTML-КНОПКА В УГЛУ --------
-        const restartBtn = document.getElementById("restartBtn");
-
         if (mobileDevice) {
             restartBtn.textContent = "↻ Сброс";
             restartBtn.addEventListener("click", (e) => {
@@ -731,6 +1046,17 @@
 
             ctx.fillStyle = fillStyle;
             ctx.fill();
+        }
+
+        function drawHamburger(cx, cy, size, color) {
+            const w = size;
+            const h = Math.max(2, size * 0.12);
+            const gap = size * 0.28;
+
+            ctx.fillStyle = color;
+            ctx.fillRect(cx - w / 2, cy - gap - h / 2, w, h);
+            ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+            ctx.fillRect(cx - w / 2, cy + gap - h / 2, w, h);
         }
 
         function drawJoystick() {
@@ -863,6 +1189,38 @@
             drawGear(cx, cy, 15, 10, 8, 5, "rgb(230, 245, 255)");
         }
 
+        function drawMenuButtonGame(now) {
+            const pressed = menuBtnPressed;
+            const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE, 12);
+            } else {
+                ctx.rect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE);
+            }
+
+            ctx.fillStyle = pressed
+                ? "rgba(90, 150, 220, 0.95)"
+                : "rgba(30, 55, 100, 0.7)";
+            ctx.fill();
+
+            ctx.lineWidth = 2;
+            if (pressed) {
+                ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+            } else {
+                const r = 100 + Math.round(40 * pulse);
+                const g = 160 + Math.round(30 * pulse);
+                const b = 220 + Math.round(20 * pulse);
+                ctx.strokeStyle = "rgba(" + r + ", " + g + ", " + b + ", 0.9)";
+            }
+            ctx.stroke();
+
+            const cx = MENU_BTN_GAME_X + MENU_BTN_SIZE / 2;
+            const cy = MENU_BTN_GAME_Y + MENU_BTN_SIZE / 2;
+            drawHamburger(cx, cy, 22, "rgb(230, 245, 255)");
+        }
+
         function drawDiffButton(x, y, w, h, diffKey) {
             const isActive = diffKey === difficulty;
             const color = DIFF_COLORS[diffKey];
@@ -969,7 +1327,7 @@
             drawIconPlane(leftX + 10, y + 9, 10, "rgb(240, 240, 250)");
             ctx.fillStyle = "rgb(220, 235, 255)";
             ctx.font = "16px sans-serif";
-            ctx.fillText("Ракета — взрыв через 0.5 сек, если вы в красной зоне", leftX + 30, y);
+            ctx.fillText("Ракета — взрыв через 0.2 сек, если вы в красной зоне", leftX + 30, y);
 
             ctx.fillStyle = "rgb(160, 210, 255)";
             ctx.font = "bold 20px sans-serif";
@@ -1027,6 +1385,222 @@
 
             ctx.textAlign = "left";
             ctx.textBaseline = "top";
+        }
+
+        // -------- МЕНЮ: РИСОВАНИЕ --------
+        function drawMenuButton(btn, now) {
+            const hovered = isInRect(mouseX, mouseY, btn);
+            const isDisabled = !!btn.disabled;
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 14);
+            } else {
+                ctx.rect(btn.x, btn.y, btn.w, btn.h);
+            }
+
+            if (isDisabled) {
+                ctx.fillStyle = "rgba(30, 40, 60, 0.5)";
+            } else if (hovered) {
+                ctx.fillStyle = "rgba(60, 110, 180, 0.9)";
+            } else {
+                ctx.fillStyle = "rgba(30, 60, 110, 0.75)";
+            }
+            ctx.fill();
+
+            ctx.lineWidth = 2;
+            if (isDisabled) {
+                ctx.strokeStyle = "rgba(80, 100, 130, 0.5)";
+            } else if (hovered) {
+                ctx.strokeStyle = "rgba(200, 230, 255, 0.95)";
+            } else {
+                ctx.strokeStyle = "rgba(120, 170, 230, 0.7)";
+            }
+            ctx.stroke();
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            if (isDisabled) {
+                ctx.fillStyle = "rgba(160, 180, 200, 0.6)";
+            } else {
+                ctx.fillStyle = "rgb(235, 245, 255)";
+            }
+            ctx.font = "bold 26px sans-serif";
+            ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+
+            if (isDisabled) {
+                ctx.font = "14px sans-serif";
+                ctx.fillStyle = "rgba(160, 190, 220, 0.7)";
+                ctx.fillText("в разработке", btn.x + btn.w / 2, btn.y + btn.h / 2 + 26);
+            }
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+        }
+
+        function drawMenuTitle(title, subtitle) {
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            const size = Math.min(WIDTH * 0.09, 82);
+            ctx.fillStyle = "rgb(235, 245, 255)";
+            ctx.font = "bold " + size + "px sans-serif";
+            ctx.fillText(title, WIDTH / 2, HEIGHT * 0.2);
+
+            if (subtitle) {
+                ctx.fillStyle = "rgba(160, 200, 240, 0.85)";
+                ctx.font = "18px sans-serif";
+                ctx.fillText(subtitle, WIDTH / 2, HEIGHT * 0.2 + size * 0.8);
+            }
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+        }
+
+        function drawMainMenu(now) {
+            drawMenuTitle("Green Ball Evasion", "Уворачивайся. Выживай.");
+
+            // Показать ник игрока, если он есть
+            if (nickname) {
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "rgba(160, 200, 240, 0.7)";
+                ctx.font = "18px sans-serif";
+                ctx.fillText("Игрок: " + nickname, WIDTH / 2, HEIGHT * 0.68);
+                ctx.textAlign = "left";
+                ctx.textBaseline = "top";
+            }
+
+            const buttons = getMainMenuButtons();
+            for (const b of buttons) drawMenuButton(b, now);
+        }
+
+        function drawPlayMenu(now) {
+            drawMenuTitle("Режим игры", "Выбери, как играть");
+
+            const buttons = getPlayMenuButtons();
+            for (const b of buttons) drawMenuButton(b, now);
+        }
+
+        // -------- ТАБЛИЦА ЛИДЕРОВ (ПЕРЕДЕЛАНА) --------
+        function drawLeaderboard(now) {
+            drawMenuTitle("Таблица лидеров", "Лучшие результаты игроков");
+
+            const lb = loadLeaderboard();
+
+            const listTop = HEIGHT * 0.34;
+            const listBottom = HEIGHT * 0.78;
+            const availH = listBottom - listTop;
+
+            if (lb.length === 0) {
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "rgba(180, 210, 240, 0.85)";
+                ctx.font = "bold 22px sans-serif";
+                ctx.fillText("Пока нет результатов", WIDTH / 2, HEIGHT * 0.5);
+                ctx.fillStyle = "rgba(160, 190, 225, 0.7)";
+                ctx.font = "16px sans-serif";
+                ctx.fillText("Сыграй игру — твой рекорд появится здесь", WIDTH / 2, HEIGHT * 0.5 + 36);
+                ctx.textAlign = "left";
+                ctx.textBaseline = "top";
+            } else {
+                const rowW = Math.min(WIDTH - 40, 640);
+                const rowH = 56;
+                const rowGap = 8;
+                const rowX = (WIDTH - rowW) / 2;
+
+                const maxRows = Math.max(1, Math.floor((availH + rowGap) / (rowH + rowGap)));
+                const shown = Math.min(lb.length, maxRows);
+
+                for (let i = 0; i < shown; i++) {
+                    const entry = lb[i];
+                    const y = listTop + i * (rowH + rowGap);
+
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                        ctx.roundRect(rowX, y, rowW, rowH, 10);
+                    } else {
+                        ctx.rect(rowX, y, rowW, rowH);
+                    }
+
+                    // Подсветка топ-3
+                    let rowColor = "rgba(30, 55, 100, 0.6)";
+                    if (i === 0) rowColor = "rgba(140, 115, 20, 0.55)";
+                    else if (i === 1) rowColor = "rgba(85, 90, 105, 0.55)";
+                    else if (i === 2) rowColor = "rgba(105, 70, 35, 0.55)";
+                    ctx.fillStyle = rowColor;
+                    ctx.fill();
+
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = "rgba(120, 170, 230, 0.4)";
+                    ctx.stroke();
+
+                    // Ранг
+                    ctx.textAlign = "left";
+                    ctx.textBaseline = "middle";
+                    let rankColor = "rgb(200, 220, 245)";
+                    if (i === 0) rankColor = "rgb(255, 220, 100)";
+                    else if (i === 1) rankColor = "rgb(220, 230, 245)";
+                    else if (i === 2) rankColor = "rgb(230, 175, 110)";
+                    ctx.fillStyle = rankColor;
+                    ctx.font = "bold 20px sans-serif";
+                    ctx.fillText("#" + (i + 1), rowX + 22, y + rowH / 2);
+
+                    // Ник
+                    ctx.fillStyle = "rgb(235, 245, 255)";
+                    ctx.font = "bold 20px sans-serif";
+                    const nickText = entry.nick || "???";
+                    ctx.fillText(nickText, rowX + 82, y + rowH / 2);
+
+                    // Цветная точка сложности
+                    const diffColor = DIFF_COLORS[entry.difficulty] || DIFF_COLORS.medium;
+                    ctx.beginPath();
+                    ctx.arc(rowX + rowW - 150, y + rowH / 2, 7, 0, Math.PI * 2);
+                    ctx.fillStyle = diffColor;
+                    ctx.fill();
+
+                    // Название сложности
+                    ctx.fillStyle = "rgba(200, 220, 245, 0.7)";
+                    ctx.font = "14px sans-serif";
+                    ctx.textAlign = "right";
+                    ctx.fillText(DIFF_NAMES[entry.difficulty] || "?", rowX + rowW - 32, y + rowH / 2 - 8);
+
+                    // Очки
+                    ctx.fillStyle = "rgb(250, 220, 100)";
+                    ctx.font = "bold 22px sans-serif";
+                    ctx.fillText(String(entry.score), rowX + rowW - 32, y + rowH / 2 + 10);
+                }
+
+                // Если записей больше — подсказка
+                if (lb.length > shown) {
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = "rgba(160, 190, 225, 0.6)";
+                    ctx.font = "13px sans-serif";
+                    ctx.fillText("...и ещё " + (lb.length - shown), WIDTH / 2, listBottom + 14);
+                }
+            }
+
+            // Подпись с ником игрока внизу
+            if (nickname) {
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "rgba(160, 200, 240, 0.7)";
+                ctx.font = "16px sans-serif";
+                ctx.fillText("Твой ник: " + nickname, WIDTH / 2, HEIGHT * 0.79);
+            }
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "top";
+
+            const buttons = getLeaderboardButtons();
+            for (const b of buttons) drawMenuButton(b, now);
+        }
+
+        function drawMenuScreen(now) {
+            if (menuState === "main") drawMainMenu(now);
+            else if (menuState === "play_menu") drawPlayMenu(now);
+            else if (menuState === "leaderboard") drawLeaderboard(now);
         }
 
         // -------- СПАВН --------
@@ -1129,546 +1703,574 @@
             const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
-            if (!isDead && !infoOpen) {
-                let dx = 0;
-                let dy = 0;
+            if (menuState === "game") {
+                if (!isDead && !infoOpen) {
+                    let dx = 0;
+                    let dy = 0;
 
-                if (controlMode === "keyboard") {
-                    if (keys["a"] || keys["ф"]) dx -= 1;
-                    if (keys["d"] || keys["в"]) dx += 1;
-                    if (keys["w"] || keys["ц"]) dy -= 1;
-                    if (keys["s"] || keys["ы"]) dy += 1;
+                    if (controlMode === "keyboard") {
+                        if (keys["a"] || keys["ф"]) dx -= 1;
+                        if (keys["d"] || keys["в"]) dx += 1;
+                        if (keys["w"] || keys["ц"]) dy -= 1;
+                        if (keys["s"] || keys["ы"]) dy += 1;
 
-                    if (dx !== 0 && dy !== 0) {
-                        const len = Math.sqrt(dx * dx + dy * dy);
-                        dx /= len;
-                        dy /= len;
-                    }
-
-                    px += dx * SPEED * dt;
-                    py += dy * SPEED * dt;
-                } else if (controlMode === "mouse") {
-                    const mdx = mouseX - px;
-                    const mdy = mouseY - py;
-                    const dist = Math.sqrt(mdx * mdx + mdy * mdy);
-
-                    if (dist > MOUSE_DEADZONE) {
-                        const step = SPEED * dt;
-                        if (step >= dist) {
-                            px = mouseX;
-                            py = mouseY;
-                        } else {
-                            px += (mdx / dist) * step;
-                            py += (mdy / dist) * step;
+                        if (dx !== 0 && dy !== 0) {
+                            const len = Math.sqrt(dx * dx + dy * dy);
+                            dx /= len;
+                            dy /= len;
                         }
-                    }
-                } else {
-                    if (joystickMagnitude > JOYSTICK_DEADZONE &&
-                        (joystickDirX !== 0 || joystickDirY !== 0)) {
 
-                        if (JOYSTICK_ANALOG) {
-                            const eff = Math.min(1, (joystickMagnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE));
-                            px += joystickDirX * SPEED * eff * dt;
-                            py += joystickDirY * SPEED * eff * dt;
-                        } else {
-                            px += joystickDirX * SPEED * dt;
-                            py += joystickDirY * SPEED * dt;
-                        }
-                    }
-                }
+                        px += dx * SPEED * dt;
+                        py += dy * SPEED * dt;
+                    } else if (controlMode === "mouse") {
+                        const mdx = mouseX - px;
+                        const mdy = mouseY - py;
+                        const dist = Math.sqrt(mdx * mdx + mdy * mdy);
 
-                if (px < BALL_RADIUS) px = BALL_RADIUS;
-                if (px > WIDTH - BALL_RADIUS) px = WIDTH - BALL_RADIUS;
-                if (py < BALL_RADIUS) py = BALL_RADIUS;
-                if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
-
-                scoreTimer += dt;
-                if (scoreTimer >= 1) {
-                    scoreTimer -= 1;
-                    score += SCORE_PER_SECOND;
-                    if (score > bestScore) {
-                        bestScore = score;
-                        localStorage.setItem(bestScoreKey(difficulty), bestScore);
-                    }
-                }
-
-                speedupTimer += dt;
-                if (speedupTimer >= SPEEDUP_EVERY) {
-                    speedupTimer -= SPEEDUP_EVERY;
-                    SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
-                }
-
-                spawnTimer += dt;
-                if (spawnTimer >= SPAWN_INTERVAL) {
-                    spawnTimer -= SPAWN_INTERVAL;
-                    spawnEnemy();
-                }
-
-                triangleSpawnTimer += dt;
-                if (triangleSpawnTimer >= TRIANGLE_SPAWN_INTERVAL) {
-                    triangleSpawnTimer -= TRIANGLE_SPAWN_INTERVAL;
-                    spawnTriangle();
-                }
-
-                planeSpawnTimer += dt;
-                if (planeSpawnTimer >= PLANE_SPAWN_INTERVAL) {
-                    planeSpawnTimer -= PLANE_SPAWN_INTERVAL;
-                    spawnPlane();
-                }
-
-                for (let i = enemies.length - 1; i >= 0; i--) {
-                    const e = enemies[i];
-
-                    if (e.state === "warning") {
-                        e.warningTimer += dt;
-                        if (e.warningTimer >= WARNING_TIME) {
-                            let ddx = px - e.x;
-                            let ddy = py - e.y;
-                            const len = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-                            e.dx = ddx / len;
-                            e.dy = ddy / len;
-                            e.state = "attack";
+                        if (dist > MOUSE_DEADZONE) {
+                            const step = SPEED * dt;
+                            if (step >= dist) {
+                                px = mouseX;
+                                py = mouseY;
+                            } else {
+                                px += (mdx / dist) * step;
+                                py += (mdy / dist) * step;
+                            }
                         }
                     } else {
-                        e.x += e.dx * ENEMY_SPEED * dt;
-                        e.y += e.dy * ENEMY_SPEED * dt;
+                        if (joystickMagnitude > JOYSTICK_DEADZONE &&
+                            (joystickDirX !== 0 || joystickDirY !== 0)) {
 
-                        if (
-                            e.x < -ENEMY_RADIUS ||
-                            e.x > WIDTH + ENEMY_RADIUS ||
-                            e.y < -ENEMY_RADIUS ||
-                            e.y > HEIGHT + ENEMY_RADIUS
-                        ) {
-                            enemies.splice(i, 1);
-                            continue;
-                        }
-
-                        const ddx = e.x - px;
-                        const ddy = e.y - py;
-                        const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-                        if (dist < ENEMY_RADIUS + BALL_RADIUS) {
-                            isDead = true;
-                            enemies.length = 0;
-                            triangles.length = 0;
-                            planes.length = 0;
-                            break;
+                            if (JOYSTICK_ANALOG) {
+                                const eff = Math.min(1, (joystickMagnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE));
+                                px += joystickDirX * SPEED * eff * dt;
+                                py += joystickDirY * SPEED * eff * dt;
+                            } else {
+                                px += joystickDirX * SPEED * dt;
+                                py += joystickDirY * SPEED * dt;
+                            }
                         }
                     }
-                }
 
-                if (!isDead) {
-                    for (let i = triangles.length - 1; i >= 0; i--) {
-                        const t = triangles[i];
+                    if (px < BALL_RADIUS) px = BALL_RADIUS;
+                    if (px > WIDTH - BALL_RADIUS) px = WIDTH - BALL_RADIUS;
+                    if (py < BALL_RADIUS) py = BALL_RADIUS;
+                    if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
 
-                        if (t.state === "warning") {
-                            t.warningTimer += dt;
-                            const adx = px - t.x;
-                            const ady = py - t.y;
-                            const targetAngle = Math.atan2(ady, adx);
+                    scoreTimer += dt;
+                    if (scoreTimer >= 1) {
+                        scoreTimer -= 1;
+                        score += SCORE_PER_SECOND;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            localStorage.setItem(bestScoreKey(difficulty), bestScore);
+                        }
+                    }
+
+                    speedupTimer += dt;
+                    if (speedupTimer >= SPEEDUP_EVERY) {
+                        speedupTimer -= SPEEDUP_EVERY;
+                        SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
+                    }
+
+                    spawnTimer += dt;
+                    if (spawnTimer >= SPAWN_INTERVAL) {
+                        spawnTimer -= SPAWN_INTERVAL;
+                        spawnEnemy();
+                    }
+
+                    triangleSpawnTimer += dt;
+                    if (triangleSpawnTimer >= TRIANGLE_SPAWN_INTERVAL) {
+                        triangleSpawnTimer -= TRIANGLE_SPAWN_INTERVAL;
+                        spawnTriangle();
+                    }
+
+                    planeSpawnTimer += dt;
+                    if (planeSpawnTimer >= PLANE_SPAWN_INTERVAL) {
+                        planeSpawnTimer -= PLANE_SPAWN_INTERVAL;
+                        spawnPlane();
+                    }
+
+                    for (let i = enemies.length - 1; i >= 0; i--) {
+                        const e = enemies[i];
+
+                        if (e.state === "warning") {
+                            e.warningTimer += dt;
+                            if (e.warningTimer >= WARNING_TIME) {
+                                let ddx = px - e.x;
+                                let ddy = py - e.y;
+                                const len = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+                                e.dx = ddx / len;
+                                e.dy = ddy / len;
+                                e.state = "attack";
+                            }
+                        } else {
+                            e.x += e.dx * ENEMY_SPEED * dt;
+                            e.y += e.dy * ENEMY_SPEED * dt;
+
+                            if (
+                                e.x < -ENEMY_RADIUS ||
+                                e.x > WIDTH + ENEMY_RADIUS ||
+                                e.y < -ENEMY_RADIUS ||
+                                e.y > HEIGHT + ENEMY_RADIUS
+                            ) {
+                                enemies.splice(i, 1);
+                                continue;
+                            }
+
+                            const ddx = e.x - px;
+                            const ddy = e.y - py;
+                            const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+                            if (dist < ENEMY_RADIUS + BALL_RADIUS) {
+                                isDead = true;
+                                enemies.length = 0;
+                                triangles.length = 0;
+                                planes.length = 0;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isDead) {
+                        for (let i = triangles.length - 1; i >= 0; i--) {
+                            const t = triangles[i];
+
+                            if (t.state === "warning") {
+                                t.warningTimer += dt;
+                                const adx = px - t.x;
+                                const ady = py - t.y;
+                                const targetAngle = Math.atan2(ady, adx);
+                                let diff = targetAngle - t.angle;
+                                while (diff > Math.PI) diff -= Math.PI * 2;
+                                while (diff < -Math.PI) diff += Math.PI * 2;
+                                t.angle += diff * Math.min(1, TRIANGLE_TURN_RATE * dt);
+
+                                if (t.warningTimer >= TRIANGLE_WARNING_TIME) {
+                                    t.state = "attack";
+                                    t.age = 0;
+                                }
+                                continue;
+                            }
+
+                            t.age += dt;
+
+                            if (t.age >= TRIANGLE_LIFETIME) {
+                                explosions.push({
+                                    x: t.x, y: t.y, t: 0,
+                                    duration: 0.45,
+                                    maxRadius: 42,
+                                    killsPlayer: false,
+                                });
+                                triangles.splice(i, 1);
+                                continue;
+                            }
+
+                            const ddx = px - t.x;
+                            const ddy = py - t.y;
+                            const targetAngle = Math.atan2(ddy, ddx);
+
                             let diff = targetAngle - t.angle;
                             while (diff > Math.PI) diff -= Math.PI * 2;
                             while (diff < -Math.PI) diff += Math.PI * 2;
-                            t.angle += diff * Math.min(1, TRIANGLE_TURN_RATE * dt);
-
-                            if (t.warningTimer >= TRIANGLE_WARNING_TIME) {
-                                t.state = "attack";
-                                t.age = 0;
+                            const maxTurn = TRIANGLE_TURN_RATE * dt;
+                            if (Math.abs(diff) > maxTurn) {
+                                t.angle += Math.sign(diff) * maxTurn;
+                            } else {
+                                t.angle = targetAngle;
                             }
-                            continue;
-                        }
 
-                        t.age += dt;
+                            const idealVx = Math.cos(t.angle) * TRIANGLE_SPEED;
+                            const idealVy = Math.sin(t.angle) * TRIANGLE_SPEED;
 
-                        if (t.age >= TRIANGLE_LIFETIME) {
-                            explosions.push({
-                                x: t.x, y: t.y, t: 0,
-                                duration: 0.45,
-                                maxRadius: 42,
-                                killsPlayer: false,
-                            });
-                            triangles.splice(i, 1);
-                            continue;
-                        }
+                            const grip = Math.min(1, TRIANGLE_GRIP * dt);
+                            t.vx += (idealVx - t.vx) * grip;
+                            t.vy += (idealVy - t.vy) * grip;
 
-                        const ddx = px - t.x;
-                        const ddy = py - t.y;
-                        const targetAngle = Math.atan2(ddy, ddx);
+                            t.x += t.vx * dt;
+                            t.y += t.vy * dt;
 
-                        let diff = targetAngle - t.angle;
-                        while (diff > Math.PI) diff -= Math.PI * 2;
-                        while (diff < -Math.PI) diff += Math.PI * 2;
-                        const maxTurn = TRIANGLE_TURN_RATE * dt;
-                        if (Math.abs(diff) > maxTurn) {
-                            t.angle += Math.sign(diff) * maxTurn;
-                        } else {
-                            t.angle = targetAngle;
-                        }
+                            const velocityAngle = Math.atan2(t.vy, t.vx);
+                            let driftDiff = velocityAngle - t.angle;
+                            while (driftDiff > Math.PI) driftDiff -= Math.PI * 2;
+                            while (driftDiff < -Math.PI) driftDiff += Math.PI * 2;
+                            const driftAmount = Math.abs(driftDiff);
 
-                        const idealVx = Math.cos(t.angle) * TRIANGLE_SPEED;
-                        const idealVy = Math.sin(t.angle) * TRIANGLE_SPEED;
+                            const currentSpeed = Math.sqrt(t.vx * t.vx + t.vy * t.vy);
+                            if (driftAmount > DRIFT_THRESHOLD && currentSpeed > 60) {
+                                const skidDx = t.x - t.lastSkidX;
+                                const skidDy = t.y - t.lastSkidY;
+                                const skidDist = Math.sqrt(skidDx * skidDx + skidDy * skidDy);
 
-                        const grip = Math.min(1, TRIANGLE_GRIP * dt);
-                        t.vx += (idealVx - t.vx) * grip;
-                        t.vy += (idealVy - t.vy) * grip;
+                                if (skidDist > 6) {
+                                    const perpX = Math.cos(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
+                                    const perpY = Math.sin(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
 
-                        t.x += t.vx * dt;
-                        t.y += t.vy * dt;
+                                    skidMarks.push({
+                                        x: t.x - perpX, y: t.y - perpY,
+                                        t: 0, life: 0.9,
+                                        intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2),
+                                    });
+                                    skidMarks.push({
+                                        x: t.x + perpX, y: t.y + perpY,
+                                        t: 0, life: 0.9,
+                                        intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2),
+                                    });
 
-                        const velocityAngle = Math.atan2(t.vy, t.vx);
-                        let driftDiff = velocityAngle - t.angle;
-                        while (driftDiff > Math.PI) driftDiff -= Math.PI * 2;
-                        while (driftDiff < -Math.PI) driftDiff += Math.PI * 2;
-                        const driftAmount = Math.abs(driftDiff);
-
-                        const currentSpeed = Math.sqrt(t.vx * t.vx + t.vy * t.vy);
-                        if (driftAmount > DRIFT_THRESHOLD && currentSpeed > 60) {
-                            const skidDx = t.x - t.lastSkidX;
-                            const skidDy = t.y - t.lastSkidY;
-                            const skidDist = Math.sqrt(skidDx * skidDx + skidDy * skidDy);
-
-                            if (skidDist > 6) {
-                                const perpX = Math.cos(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
-                                const perpY = Math.sin(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
-
-                                skidMarks.push({
-                                    x: t.x - perpX, y: t.y - perpY,
-                                    t: 0, life: 0.9,
-                                    intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2),
-                                });
-                                skidMarks.push({
-                                    x: t.x + perpX, y: t.y + perpY,
-                                    t: 0, life: 0.9,
-                                    intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2),
-                                });
-
+                                    t.lastSkidX = t.x;
+                                    t.lastSkidY = t.y;
+                                }
+                            } else {
                                 t.lastSkidX = t.x;
                                 t.lastSkidY = t.y;
                             }
-                        } else {
-                            t.lastSkidX = t.x;
-                            t.lastSkidY = t.y;
-                        }
 
-                        const distToPlayer = Math.sqrt(
-                            (t.x - px) * (t.x - px) + (t.y - py) * (t.y - py)
-                        );
-                        if (distToPlayer < TRIANGLE_SIZE * 0.7 + BALL_RADIUS) {
+                            const distToPlayer = Math.sqrt(
+                                (t.x - px) * (t.x - px) + (t.y - py) * (t.y - py)
+                            );
+                            if (distToPlayer < TRIANGLE_SIZE * 0.7 + BALL_RADIUS) {
+                                isDead = true;
+                                enemies.length = 0;
+                                triangles.length = 0;
+                                planes.length = 0;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isDead) {
+                        for (let i = planes.length - 1; i >= 0; i--) {
+                            const p = planes[i];
+
+                            p.x += p.dx * PLANE_SPEED * dt;
+                            p.y += p.dy * PLANE_SPEED * dt;
+                            p.traveled += PLANE_SPEED * dt;
+
+                            if (p.traveled > PLANE_MAX_PATH) {
+                                planes.splice(i, 1);
+                                continue;
+                            }
+
+                            const ddx = px - p.x;
+                            const ddy = py - p.y;
+                            const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+
+                            if (dist < PLANE_EXPLOSION_RADIUS) {
+                                p.inZoneTimer += dt;
+
+                                if (p.inZoneTimer >= PLANE_DANGER_DELAY) {
+                                    explosions.push({
+                                        x: p.x, y: p.y, t: 0,
+                                        duration: 0.7,
+                                        maxRadius: PLANE_EXPLOSION_RADIUS * 1.4,
+                                        lethalRadius: PLANE_EXPLOSION_RADIUS,
+                                        killsPlayer: true,
+                                    });
+                                    planes.splice(i, 1);
+                                    continue;
+                                }
+                            } else {
+                                p.inZoneTimer = 0;
+                            }
+                        }
+                    }
+                }
+
+                for (let i = explosions.length - 1; i >= 0; i--) {
+                    const ex = explosions[i];
+                    ex.t += dt;
+
+                    if (ex.killsPlayer && !isDead && !infoOpen) {
+                        const ddx = px - ex.x;
+                        const ddy = py - ex.y;
+                        const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+                        if (dist < ex.lethalRadius) {
                             isDead = true;
                             enemies.length = 0;
                             triangles.length = 0;
                             planes.length = 0;
-                            break;
                         }
+                    }
+
+                    if (ex.t >= ex.duration) explosions.splice(i, 1);
+                }
+
+                for (let i = skidMarks.length - 1; i >= 0; i--) {
+                    const s = skidMarks[i];
+                    s.t += dt;
+                    if (s.t >= s.life) skidMarks.splice(i, 1);
+                }
+
+                // ===== СОХРАНЕНИЕ РЕЗУЛЬТАТА ПОСЛЕ СМЕРТИ =====
+                if (isDead && !scoreSavedThisLife) {
+                    if (nickname && score > 0) {
+                        addScoreToLeaderboard(nickname, score, difficulty);
+                    }
+                    scoreSavedThisLife = true;
+                }
+
+                // ===== ОТРИСОВКА ИГРЫ =====
+                ctx.fillStyle = "rgb(10, 15, 40)";
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                if (controlMode === "mouse" && !isDead) {
+                    ctx.beginPath();
+                    ctx.arc(mouseX, mouseY, 6, 0, Math.PI * 2);
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = "rgba(120, 200, 255, 0.7)";
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(mouseX - 10, mouseY);
+                    ctx.lineTo(mouseX - 3, mouseY);
+                    ctx.moveTo(mouseX + 3, mouseY);
+                    ctx.lineTo(mouseX + 10, mouseY);
+                    ctx.moveTo(mouseX, mouseY - 10);
+                    ctx.lineTo(mouseX, mouseY - 3);
+                    ctx.moveTo(mouseX, mouseY + 3);
+                    ctx.lineTo(mouseX, mouseY + 10);
+                    ctx.strokeStyle = "rgba(120, 200, 255, 0.5)";
+                    ctx.stroke();
+                }
+
+                for (const s of skidMarks) {
+                    const p = s.t / s.life;
+                    const alpha = (1 - p) * 0.55 * s.intensity;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 2.5 + p * 2, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(255, 130, 50, " + alpha + ")";
+                    ctx.fill();
+                }
+
+                for (const e of enemies) {
+                    if (e.state === "warning") {
+                        const tt = e.warningTimer / WARNING_TIME;
+                        const pulse = 0.5 + 0.5 * Math.sin(e.warningTimer * 30);
+                        const ringRadius = ENEMY_RADIUS + (1 - tt) * 14;
+
+                        ctx.beginPath();
+                        ctx.arc(e.x, e.y, ringRadius, 0, Math.PI * 2);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = "rgba(250, 220, 60, " + (0.4 + 0.4 * pulse) + ")";
+                        ctx.stroke();
+
+                        ctx.beginPath();
+                        ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(250, 220, 60, " + (0.35 + 0.3 * pulse) + ")";
+                        ctx.fill();
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgb(250, 220, 60)";
+                        ctx.fill();
+                    }
+                }
+
+                for (const t of triangles) {
+                    if (t.state === "warning") {
+                        const tt = t.warningTimer / TRIANGLE_WARNING_TIME;
+                        const pulse = 0.5 + 0.5 * Math.sin(t.warningTimer * 30);
+                        const ringRadius = TRIANGLE_SIZE + (1 - tt) * 14;
+
+                        ctx.beginPath();
+                        ctx.arc(t.x, t.y, ringRadius, 0, Math.PI * 2);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = "rgba(255, 140, 40, " + (0.4 + 0.4 * pulse) + ")";
+                        ctx.stroke();
+
+                        ctx.globalAlpha = 0.35 + 0.3 * pulse;
+                        drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
+                        ctx.globalAlpha = 1;
+                        continue;
+                    }
+
+                    drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
+
+                    const lifeLeft = 1 - t.age / TRIANGLE_LIFETIME;
+                    const blinkRate = 6 + (1 - lifeLeft) * 20;
+                    const blinkAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t.age * blinkRate));
+                    ctx.beginPath();
+                    ctx.arc(t.x, t.y, 2.5, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(255, 255, 200, " + blinkAlpha + ")";
+                    ctx.fill();
+                }
+
+                for (const p of planes) {
+                    drawPlane(p.x, p.y, p.angle, "rgb(240, 240, 250)");
+
+                    if (p.inZoneTimer > 0) {
+                        const prog = p.inZoneTimer / PLANE_DANGER_DELAY;
+                        const ringRadius = PLANE_SIZE + (PLANE_EXPLOSION_RADIUS - PLANE_SIZE) * (1 - prog);
+
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(255, 60, 30, 0.08)";
+                        ctx.fill();
+
+                        const pulse = 0.65 + 0.35 * Math.sin(now / 60);
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = "rgba(255, 100, 50, " + pulse + ")";
+                        ctx.stroke();
+
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = "rgba(255, 80, 40, " + pulse + ")";
+                        ctx.stroke();
+                    } else {
+                        const pulse = 0.4 + 0.3 * Math.sin(now / 100 + p.x);
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = "rgba(220, 220, 255, " + pulse + ")";
+                        ctx.stroke();
+                    }
+                }
+
+                for (const ex of explosions) {
+                    const prog = ex.t / ex.duration;
+                    const radius = 8 + prog * (ex.maxRadius - 8);
+                    const alpha = 1 - prog;
+
+                    if (ex.killsPlayer) {
+                        ctx.beginPath();
+                        ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
+                        ctx.lineWidth = 3 * (1 - prog) + 1.5;
+                        ctx.strokeStyle = "rgba(255, 200, 100, " + alpha + ")";
+                        ctx.stroke();
+
+                        const lethalAlpha = Math.max(0, 1 - prog * 1.6);
+                        ctx.beginPath();
+                        ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(255, 80, 40, " + (lethalAlpha * 0.45) + ")";
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
+                        ctx.lineWidth = 2.5;
+                        ctx.strokeStyle = "rgba(255, 120, 60, " + (lethalAlpha * 0.9) + ")";
+                        ctx.stroke();
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
+                        ctx.lineWidth = 3 * (1 - prog) + 1;
+                        ctx.strokeStyle = "rgba(255, 170, 60, " + alpha + ")";
+                        ctx.stroke();
+
+                        ctx.beginPath();
+                        ctx.arc(ex.x, ex.y, radius * 0.6, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(255, 220, 120, " + (alpha * 0.6) + ")";
+                        ctx.fill();
                     }
                 }
 
                 if (!isDead) {
-                    for (let i = planes.length - 1; i >= 0; i--) {
-                        const p = planes[i];
-
-                        p.x += p.dx * PLANE_SPEED * dt;
-                        p.y += p.dy * PLANE_SPEED * dt;
-                        p.traveled += PLANE_SPEED * dt;
-
-                        if (p.traveled > PLANE_MAX_PATH) {
-                            planes.splice(i, 1);
-                            continue;
-                        }
-
-                        const ddx = px - p.x;
-                        const ddy = py - p.y;
-                        const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-
-                        if (dist < PLANE_EXPLOSION_RADIUS) {
-                            p.inZoneTimer += dt;
-
-                            if (p.inZoneTimer >= PLANE_DANGER_DELAY) {
-                                explosions.push({
-                                    x: p.x, y: p.y, t: 0,
-                                    duration: 0.7,
-                                    maxRadius: PLANE_EXPLOSION_RADIUS * 1.4,
-                                    lethalRadius: PLANE_EXPLOSION_RADIUS,
-                                    killsPlayer: true,
-                                });
-                                planes.splice(i, 1);
-                                continue;
-                            }
-                        } else {
-                            p.inZoneTimer = 0;
-                        }
-                    }
-                }
-            }
-
-            for (let i = explosions.length - 1; i >= 0; i--) {
-                const ex = explosions[i];
-                ex.t += dt;
-
-                if (ex.killsPlayer && !isDead && !infoOpen) {
-                    const ddx = px - ex.x;
-                    const ddy = py - ex.y;
-                    const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-                    if (dist < ex.lethalRadius) {
-                        isDead = true;
-                        enemies.length = 0;
-                        triangles.length = 0;
-                        planes.length = 0;
-                    }
-                }
-
-                if (ex.t >= ex.duration) explosions.splice(i, 1);
-            }
-
-            for (let i = skidMarks.length - 1; i >= 0; i--) {
-                const s = skidMarks[i];
-                s.t += dt;
-                if (s.t >= s.life) skidMarks.splice(i, 1);
-            }
-
-            // -------- ОТРИСОВКА --------
-            ctx.fillStyle = "rgb(10, 15, 40)";
-            ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-            if (controlMode === "mouse" && !isDead) {
-                ctx.beginPath();
-                ctx.arc(mouseX, mouseY, 6, 0, Math.PI * 2);
-                ctx.lineWidth = 1.5;
-                ctx.strokeStyle = "rgba(120, 200, 255, 0.7)";
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.moveTo(mouseX - 10, mouseY);
-                ctx.lineTo(mouseX - 3, mouseY);
-                ctx.moveTo(mouseX + 3, mouseY);
-                ctx.lineTo(mouseX + 10, mouseY);
-                ctx.moveTo(mouseX, mouseY - 10);
-                ctx.lineTo(mouseX, mouseY - 3);
-                ctx.moveTo(mouseX, mouseY + 3);
-                ctx.lineTo(mouseX, mouseY + 10);
-                ctx.strokeStyle = "rgba(120, 200, 255, 0.5)";
-                ctx.stroke();
-            }
-
-            for (const s of skidMarks) {
-                const p = s.t / s.life;
-                const alpha = (1 - p) * 0.55 * s.intensity;
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, 2.5 + p * 2, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(255, 130, 50, " + alpha + ")";
-                ctx.fill();
-            }
-
-            for (const e of enemies) {
-                if (e.state === "warning") {
-                    const tt = e.warningTimer / WARNING_TIME;
-                    const pulse = 0.5 + 0.5 * Math.sin(e.warningTimer * 30);
-                    const ringRadius = ENEMY_RADIUS + (1 - tt) * 14;
-
                     ctx.beginPath();
-                    ctx.arc(e.x, e.y, ringRadius, 0, Math.PI * 2);
+                    ctx.arc(px, py, BALL_RADIUS, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgb(80, 230, 120)";
+                    ctx.fill();
+
                     ctx.lineWidth = 2;
-                    ctx.strokeStyle = "rgba(250, 220, 60, " + (0.4 + 0.4 * pulse) + ")";
-                    ctx.stroke();
-
-                    ctx.beginPath();
-                    ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(250, 220, 60, " + (0.35 + 0.3 * pulse) + ")";
-                    ctx.fill();
-                } else {
-                    ctx.beginPath();
-                    ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgb(250, 220, 60)";
-                    ctx.fill();
-                }
-            }
-
-            for (const t of triangles) {
-                if (t.state === "warning") {
-                    const tt = t.warningTimer / TRIANGLE_WARNING_TIME;
-                    const pulse = 0.5 + 0.5 * Math.sin(t.warningTimer * 30);
-                    const ringRadius = TRIANGLE_SIZE + (1 - tt) * 14;
-
-                    ctx.beginPath();
-                    ctx.arc(t.x, t.y, ringRadius, 0, Math.PI * 2);
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = "rgba(255, 140, 40, " + (0.4 + 0.4 * pulse) + ")";
-                    ctx.stroke();
-
-                    ctx.globalAlpha = 0.35 + 0.3 * pulse;
-                    drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
-                    ctx.globalAlpha = 1;
-                    continue;
-                }
-
-                drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
-
-                const lifeLeft = 1 - t.age / TRIANGLE_LIFETIME;
-                const blinkRate = 6 + (1 - lifeLeft) * 20;
-                const blinkAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t.age * blinkRate));
-                ctx.beginPath();
-                ctx.arc(t.x, t.y, 2.5, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(255, 255, 200, " + blinkAlpha + ")";
-                ctx.fill();
-            }
-
-            for (const p of planes) {
-                drawPlane(p.x, p.y, p.angle, "rgb(240, 240, 250)");
-
-                if (p.inZoneTimer > 0) {
-                    const prog = p.inZoneTimer / PLANE_DANGER_DELAY;
-                    const ringRadius = PLANE_SIZE + (PLANE_EXPLOSION_RADIUS - PLANE_SIZE) * (1 - prog);
-
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(255, 60, 30, 0.08)";
-                    ctx.fill();
-
-                    const pulse = 0.65 + 0.35 * Math.sin(now / 60);
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
-                    ctx.lineWidth = 3;
-                    ctx.strokeStyle = "rgba(255, 100, 50, " + pulse + ")";
-                    ctx.stroke();
-
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = "rgba(255, 80, 40, " + pulse + ")";
-                    ctx.stroke();
-                } else {
-                    const pulse = 0.4 + 0.3 * Math.sin(now / 100 + p.x);
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
-                    ctx.lineWidth = 1;
-                    ctx.strokeStyle = "rgba(220, 220, 255, " + pulse + ")";
+                    ctx.strokeStyle = "rgb(180, 255, 200)";
                     ctx.stroke();
                 }
-            }
 
-            for (const ex of explosions) {
-                const prog = ex.t / ex.duration;
-                const radius = 8 + prog * (ex.maxRadius - 8);
-                const alpha = 1 - prog;
-
-                if (ex.killsPlayer) {
-                    ctx.beginPath();
-                    ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
-                    ctx.lineWidth = 3 * (1 - prog) + 1.5;
-                    ctx.strokeStyle = "rgba(255, 200, 100, " + alpha + ")";
-                    ctx.stroke();
-
-                    const lethalAlpha = Math.max(0, 1 - prog * 1.6);
-                    ctx.beginPath();
-                    ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(255, 80, 40, " + (lethalAlpha * 0.45) + ")";
-                    ctx.fill();
-
-                    ctx.beginPath();
-                    ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
-                    ctx.lineWidth = 2.5;
-                    ctx.strokeStyle = "rgba(255, 120, 60, " + (lethalAlpha * 0.9) + ")";
-                    ctx.stroke();
-                } else {
-                    ctx.beginPath();
-                    ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
-                    ctx.lineWidth = 3 * (1 - prog) + 1;
-                    ctx.strokeStyle = "rgba(255, 170, 60, " + alpha + ")";
-                    ctx.stroke();
-
-                    ctx.beginPath();
-                    ctx.arc(ex.x, ex.y, radius * 0.6, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(255, 220, 120, " + (alpha * 0.6) + ")";
-                    ctx.fill();
+                if (controlMode === "touch" && !isDead) {
+                    drawJoystick();
                 }
-            }
 
-            if (!isDead) {
-                ctx.beginPath();
-                ctx.arc(px, py, BALL_RADIUS, 0, Math.PI * 2);
-                ctx.fillStyle = "rgb(80, 230, 120)";
-                ctx.fill();
-
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = "rgb(180, 255, 200)";
-                ctx.stroke();
-            }
-
-            if (controlMode === "touch" && !isDead) {
-                drawJoystick();
-            }
-
-            // -------- HUD --------
-            ctx.textAlign = "left";
-            ctx.textBaseline = "top";
-
-            ctx.fillStyle = "rgb(230, 245, 255)";
-            ctx.font = "bold 28px sans-serif";
-            ctx.fillText("Счёт: " + score, 16, 16);
-
-            ctx.fillStyle = "rgb(160, 200, 240)";
-            ctx.font = "18px sans-serif";
-            ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
-
-            ctx.fillStyle = DIFF_COLORS[difficulty];
-            ctx.font = "bold 16px sans-serif";
-            ctx.fillText("Сложность: " + DIFF_NAMES[difficulty], 16, 78);
-
-            ctx.fillStyle = "rgb(120, 150, 190)";
-            ctx.font = "14px sans-serif";
-            ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 104);
-            ctx.fillText("Треугольников: " + triangles.length, 16, 124);
-            ctx.fillText("Ракет: " + planes.length, 16, 142);
-
-            ctx.fillStyle = "rgba(180, 210, 240, 0.85)";
-            ctx.font = "bold 14px sans-serif";
-            if (mobileDevice) {
-                ctx.fillText("Кнопка «Сброс» — очищает поле", 16, 166);
-            } else {
-                ctx.fillText("R — сброс уровня (без перезагрузки)", 16, 166);
-            }
-
-            drawCtrlButton(now);
-            drawInfoButton(now);
-
-            if (isDead && !infoOpen) {
-                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-                ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-
-                ctx.fillStyle = "rgb(255, 80, 80)";
-                ctx.font = "bold 64px sans-serif";
-                ctx.fillText("GAME OVER", WIDTH / 2, HEIGHT / 2 - 100);
+                ctx.textAlign = "left";
+                ctx.textBaseline = "top";
 
                 ctx.fillStyle = "rgb(230, 245, 255)";
-                ctx.font = "32px sans-serif";
-                ctx.fillText("Твой счёт: " + score, WIDTH / 2, HEIGHT / 2 - 20);
+                ctx.font = "bold 28px sans-serif";
+                ctx.fillText("Счёт: " + score, 16, 16);
 
-                ctx.fillStyle = "rgb(180, 220, 255)";
-                ctx.font = "26px sans-serif";
-                ctx.fillText("Лучший счёт (" + DIFF_NAMES[difficulty] + "): " + bestScore, WIDTH / 2, HEIGHT / 2 + 30);
+                ctx.fillStyle = "rgb(160, 200, 240)";
+                ctx.font = "18px sans-serif";
+                ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
 
-                if (score >= bestScore && score > 0) {
-                    ctx.fillStyle = "rgb(255, 220, 80)";
-                    ctx.font = "bold 22px sans-serif";
-                    ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH / 2, HEIGHT / 2 + 75);
+                ctx.fillStyle = DIFF_COLORS[difficulty];
+                ctx.font = "bold 16px sans-serif";
+                ctx.fillText("Сложность: " + DIFF_NAMES[difficulty], 16, 78);
+
+                if (nickname) {
+                    ctx.fillStyle = "rgba(160, 200, 240, 0.8)";
+                    ctx.font = "15px sans-serif";
+                    ctx.fillText("Игрок: " + nickname, 16, 100);
                 }
 
-                ctx.fillStyle = "rgb(200, 200, 220)";
-                ctx.font = "22px sans-serif";
+                ctx.fillStyle = "rgb(120, 150, 190)";
+                ctx.font = "14px sans-serif";
+                ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 126);
+                ctx.fillText("Треугольников: " + triangles.length, 16, 146);
+                ctx.fillText("Ракет: " + planes.length, 16, 164);
+
+                ctx.fillStyle = "rgba(180, 210, 240, 0.85)";
+                ctx.font = "bold 14px sans-serif";
                 if (mobileDevice) {
-                    ctx.fillText("Нажми «Сброс» чтобы продолжить", WIDTH / 2, HEIGHT / 2 + 130);
+                    ctx.fillText("Кнопка «Сброс» — очищает поле", 16, 188);
                 } else {
-                    ctx.fillText("Нажми R чтобы сбросить уровень", WIDTH / 2, HEIGHT / 2 + 130);
+                    ctx.fillText("R — сброс · Esc — меню", 16, 188);
                 }
-            }
 
-            if (infoOpen) {
-                drawInfoOverlay();
+                drawCtrlButton(now);
+                drawMenuButtonGame(now);
+                drawInfoButton(now);
+
+                if (isDead && !infoOpen) {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+
+                    ctx.fillStyle = "rgb(255, 80, 80)";
+                    ctx.font = "bold 64px sans-serif";
+                    ctx.fillText("GAME OVER", WIDTH / 2, HEIGHT / 2 - 100);
+
+                    ctx.fillStyle = "rgb(230, 245, 255)";
+                    ctx.font = "32px sans-serif";
+                    ctx.fillText("Твой счёт: " + score, WIDTH / 2, HEIGHT / 2 - 20);
+
+                    ctx.fillStyle = "rgb(180, 220, 255)";
+                    ctx.font = "26px sans-serif";
+                    ctx.fillText("Лучший счёт (" + DIFF_NAMES[difficulty] + "): " + bestScore, WIDTH / 2, HEIGHT / 2 + 30);
+
+                    if (score >= bestScore && score > 0) {
+                        ctx.fillStyle = "rgb(255, 220, 80)";
+                        ctx.font = "bold 22px sans-serif";
+                        ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH / 2, HEIGHT / 2 + 75);
+                    }
+
+                    ctx.fillStyle = "rgb(200, 200, 220)";
+                    ctx.font = "22px sans-serif";
+                    if (mobileDevice) {
+                        ctx.fillText("Нажми «Сброс» чтобы продолжить", WIDTH / 2, HEIGHT / 2 + 130);
+                    } else {
+                        ctx.fillText("R — заново · Esc — меню", WIDTH / 2, HEIGHT / 2 + 130);
+                    }
+                }
+
+                if (infoOpen) {
+                    drawInfoOverlay();
+                }
+            } else {
+                ctx.fillStyle = "rgb(10, 15, 40)";
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+                drawMenuScreen(now);
             }
 
             requestAnimationFrame(loop);
+        }
+
+        // Инициализация
+        updateRestartBtnVisibility();
+
+        // При первом заходе — просим ник
+        if (!nickname) {
+            showNickInput();
         }
 
         requestAnimationFrame(loop);
