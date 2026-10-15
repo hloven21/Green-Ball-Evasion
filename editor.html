@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Редактор уровней — Green Ball Evasion</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #05050a;
+    color: #c8d8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+
+  #toolbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    background: #101a30;
+    border-bottom: 2px solid #1a2a4a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    z-index: 10;
+    flex-wrap: wrap;
+  }
+  #toolbar button {
+    padding: 8px 14px;
+    background: #1e3050;
+    color: #c8d8f0;
+    border: 2px solid #2a4a7a;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  #toolbar button:hover {
+    background: #2a4a7a;
+  }
+  #toolbar button.active {
+    background: #3a6aaa;
+    border-color: #6aa0e0;
+    color: #fff;
+    font-weight: bold;
+  }
+  #toolbar button.danger {
+    background: #5a2030;
+    border-color: #8a3040;
+  }
+  #toolbar button.danger:hover {
+    background: #7a2a40;
+  }
+  #toolbar .sep {
+    color: #4a6a8a;
+    margin: 0 4px;
+  }
+  #toolbar label {
+    font-size: 13px;
+    color: #8aa8c8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #toolbar input[type="text"] {
+    padding: 6px 10px;
+    background: #0a1020;
+    color: #fff;
+    border: 2px solid #2a4a7a;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    width: 160px;
+    outline: none;
+  }
+  #toolbar input[type="text"]:focus {
+    border-color: #6aa0e0;
+  }
+  #status {
+    margin-left: auto;
+    font-size: 13px;
+    color: #6aa0e0;
+    min-width: 100px;
+    text-align: right;
+  }
+  #status.error { color: #ff6a6a; }
+  #status.success { color: #7ce08a; }
+
+  #scrollWrap {
+    position: fixed;
+    top: 56px;
+    left: 0; right: 0; bottom: 0;
+    overflow: auto;
+    background: #05050a;
+  }
+
+  #editor {
+    display: block;
+    background: #1a1a2e;
+    cursor: crosshair;
+    image-rendering: pixelated;
+  }
+
+  #hint {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 16, 32, 0.9);
+    border: 1px solid #2a4a7a;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #8aa8c8;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+  }
+  @media (max-width: 900px) {
+    #hint { font-size: 11px; padding: 6px 10px; white-space: normal; max-width: 90vw; text-align: center; }
+    #toolbar { height: auto; padding: 8px; }
+    #scrollWrap { top: 120px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button data-tool="platform" class="active">Платформа</button>
+  <button data-tool="spike">Шипы</button>
+  <button data-tool="checkpoint">Чекпоинт</button>
+  <button data-tool="start">Старт</button>
+  <button data-tool="finish">Финиш</button>
+  <button data-tool="eraser">Ластик</button>
+  <span class="sep">|</span>
+  <label>Имя: <input type="text" id="levelName" value="Уровень 1"></label>
+  <span class="sep">|</span>
+  <button id="btnUndo" title="Ctrl+Z">↶ Отменить</button>
+  <button id="btnClear" class="danger">Очистить</button>
+  <span class="sep">|</span>
+  <button id="btnCopy">Копировать JSON</button>
+  <button id="btnExport">Скачать JSON</button>
+  <button id="btnImport">Загрузить JSON</button>
+  <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+  <span id="status"></span>
+</div>
+
+<div id="scrollWrap">
+  <canvas id="editor" width="2400" height="1400"></canvas>
+</div>
+
+<div id="hint">ЛКМ — поставить · Shift+ЛКМ — удалить · Ctrl+Z — отменить · Тянуть мышью — рисовать блоки</div>
+
+<script>
+// ============================================================
+// РЕДАКТОР УРОВНЕЙ — Green Ball Evasion
+// ============================================================
+
+const canvas = document.getElementById("editor");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const levelNameInput = document.getElementById("levelName");
+const fileInput = document.getElementById("fileInput");
+
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+const TILE = 40;                 // размер клетки сетки
+
+// Состояние
+let tool = "platform";
+let elements = [];               // все объекты уровня
+let history = [];                // стек для отмены
+let isDrawing = false;
+let dragStart = null;            // { x, y } в пикселях, выровненные по сетке
+let dragCurrent = null;
+let shiftPressed = false;
+
+// Цвета элементов
+const COLORS = {
+  platform:   { fill: "rgba(74, 106, 154, 0.9)",  stroke: "rgba(140, 180, 230, 1)" },
+  spike:      { fill: "rgba(255, 68, 68, 0.85)",  stroke: "rgba(255, 150, 150, 1)" },
+  checkpoint: { fill: "rgba(68, 170, 255, 0.7)",  stroke: "rgba(180, 220, 255, 1)" },
+  start:      { fill: "rgba(0, 204, 68, 0.85)",   stroke: "rgba(180, 255, 200, 1)" },
+  finish:     { fill: "rgba(255, 204, 0, 0.85)",  stroke: "rgba(255, 240, 150, 1)" },
+};
+
+// ---------- УТИЛИТЫ ----------
+function snap(v) {
+  return Math.round(v / TILE) * TILE;
+}
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+function setStatus(text, type) {
+  statusEl.textContent = text || "";
+  statusEl.className = type || "";
+  if (text) {
+    clearTimeout(setStatus._timer);
+    setStatus._timer = setTimeout(() => {
+      statusEl.textContent = "";
+      statusEl.className = "";
+    }, 2500);
+  }
+}
+
+// Точка на canvas из события мыши/тача (учитываем прокрутку родителя через getBoundingClientRect)
+function eventToCanvas(e) {
+  const rect = canvas.getBoundingClientRect();
+  let clientX, clientY;
+  if (e.touches && e.touches.length) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (e.changedTouches && e.changedTouches.length) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  } else {
+    clientX = e.clientX;
+    clientY = e.clientY;
+  }
+  return {
+    x: clamp(clientX - rect.left, 0, WIDTH),
+    y: clamp(clientY - rect.top, 0, HEIGHT),
+  };
+}
+
+// ---------- ИСТОРИЯ (для Ctrl+Z) ----------
+function pushHistory() {
+  history.push(JSON.stringify(elements));
+  if (history.length > 50) history.shift();
+}
+function undo() {
+  if (history.length === 0) { setStatus("Нечего отменять", "error"); return; }
+  elements = JSON.parse(history.pop());
+  setStatus("Отменено", "success");
+  render();
+}
+
+// ---------- ЛОГИКА РЕДАКТОРА ----------
+function getElementAt(x, y) {
+  // Идём с конца — самые новые сверху
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const el = elements[i];
+    if (el.type === "checkpoint" || el.type === "start" || el.type === "finish") {
+      if (Math.abs(el.x - x) < TILE && Math.abs(el.y - y) < TILE) return i;
+    } else {
+      if (x >= el.x && x <= el.x + el.w && y >= el.y && y <= el.y + el.h) return i;
+    }
+  }
+  return -1;
+}
+
+function eraseAt(x, y) {
+  const idx = getElementAt(x, y);
+  if (idx >= 0) {
+    elements.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+function placeSinglePoint(type, x, y) {
+  const sx = snap(x - TILE / 2);
+  const sy = snap(y - TILE / 2);
+  // Убираем старый такой же, если есть
+  if (type === "start" || type === "finish") {
+    elements = elements.filter(el => el.type !== type);
+  }
+  // Ищем в этой же клетке — не ставим дубликат
+  for (const el of elements) {
+    if (el.type === type && el.x === sx && el.y === sy) return;
+  }
+  elements.push({ type, x: sx, y: sy });
+}
+
+function placeRectangle(type, x1, y1, x2, y2) {
+  const sx = snap(Math.min(x1, x2));
+  const sy = snap(Math.min(y1, y2));
+  const ex = snap(Math.max(x1, x2));
+  const ey = snap(Math.max(y1, y2));
+  const w = Math.max(TILE, ex - sx);
+  const h = Math.max(TILE, ey - sy);
+  elements.push({ type, x: sx, y: sy, w, h });
+}
+
+// ---------- ОБРАБОТКА МЫШИ ----------
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  const p = eventToCanvas(e);
+  shiftPressed = e.shiftKey;
+
+  // Ластик
+  if (tool === "eraser" || shiftPressed) {
+    pushHistory();
+    isDrawing = true;
+    dragStart = { x: p.x, y: p.y, erase: true };
+    eraseAt(p.x, p.y);
+    render();
+    return;
+  }
+
+  // Старт/финиш/чекпоинт — одиночный клик
+  if (tool === "checkpoint" || tool === "start" || tool === "finish") {
+    pushHistory();
+    placeSinglePoint(tool, p.x, p.y);
+    render();
+    return;
+  }
+
+  // Платформа/шипы — начало рисования прямоугольника
+  pushHistory();
+  isDrawing = true;
+  dragStart = { x: p.x, y: p.y };
+  dragCurrent = { x: p.x, y: p.y };
+  render();
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  if (!isDrawing) return;
+  const p = eventToCanvas(e);
+
+  if (dragStart.erase) {
+    // Режим ластика — стираем под курсором
+    eraseAt(p.x, p.y);
+    render();
+    return;
+  }
+
+  dragCurrent = { x: p.x, y: p.y };
+  render();
+});
+
+canvas.addEventListener("mouseup", (e) => {
+  if (!isDrawing) return;
+  isDrawing = false;
+
+  if (dragStart.erase) {
+    dragStart = null;
+    dragCurrent = null;
+    return;
+  }
+
+  // Создаём прямоугольник
+  placeRectangle(tool, dragStart.x, dragStart.y, dragCurrent.x, dragCurrent.y);
+  dragStart = null;
+  dragCurrent = null;
+  render();
+});
+
+canvas.addEventListener("mouseleave", () => {
+  if (isDrawing) {
+    isDrawing = false;
+    dragStart = null;
+    dragCurrent = null;
+    render();
+  }
+});
+
+// Запрет контекстного меню на canvas
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// ---------- КАСАНИЯ (для телефона) ----------
+canvas.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  if (e.touches.length !== 1) return;
+  const p = eventToCanvas(e);
+
+  if (tool === "eraser") {
+    pushHistory();
+    isDrawing = true;
+    dragStart = { x: p.x, y: p.y, erase: true };
+    eraseAt(p.x, p.y);
+    render();
+    return;
+  }
+  if (tool === "checkpoint" || tool === "start" || tool === "finish") {
+    pushHistory();
+    placeSinglePoint(tool, p.x, p.y);
+    render();
+    return;
+  }
+  pushHistory();
+  isDrawing = true;
+  dragStart = { x: p.x, y: p.y };
+  dragCurrent = { x: p.x, y: p.y };
+  render();
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const p = eventToCanvas(e);
+  if (dragStart.erase) { eraseAt(p.x, p.y); render(); return; }
+  dragCurrent = { x: p.x, y: p.y };
+  render();
+}, { passive: false });
+
+canvas.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (dragStart.erase) { dragStart = null; dragCurrent = null; return; }
+  placeRectangle(tool, dragStart.x, dragStart.y, dragCurrent.x, dragCurrent.y);
+  dragStart = null;
+  dragCurrent = null;
+  render();
+}, { passive: false });
+
+// ---------- ОТРИСОВКА ----------
+function drawGrid() {
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= WIDTH; x += TILE) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, HEIGHT);
+  }
+  for (let y = 0; y <= HEIGHT; y += TILE) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(WIDTH, y + 0.5);
+  }
+  ctx.stroke();
+
+  // Жирная сетка каждые 5 клеток
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+  ctx.beginPath();
+  for (let x = 0; x <= WIDTH; x += TILE * 5) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, HEIGHT);
+  }
+  for (let y = 0; y <= HEIGHT; y += TILE * 5) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(WIDTH, y + 0.5);
+  }
+  ctx.stroke();
+}
+
+function drawElement(el, isPreview) {
+  const c = COLORS[el.type];
+  if (!c) return;
+
+  ctx.globalAlpha = isPreview ? 0.5 : 1;
+
+  if (el.type === "checkpoint" || el.type === "start" || el.type === "finish") {
+    // Одиночный маркер
+    ctx.beginPath();
+    ctx.arc(el.x + TILE / 2, el.y + TILE / 2, TILE * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = c.fill;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = c.stroke;
+    ctx.stroke();
+
+    // Обозначение буквой/иконкой
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.font = "bold 20px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    let label = "";
+    if (el.type === "start") label = "S";
+    else if (el.type === "finish") label = "F";
+    else if (el.type === "checkpoint") label = "C";
+    ctx.fillText(label, el.x + TILE / 2, el.y + TILE / 2 + 1);
+  } else {
+    // Прямоугольные элементы
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(el.x, el.y, el.w, el.h, 4);
+    else ctx.rect(el.x, el.y, el.w, el.h);
+    ctx.fillStyle = c.fill;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = c.stroke;
+    ctx.stroke();
+
+    // Для шипов рисуем треугольники сверху
+    if (el.type === "spike" && el.h >= TILE / 2) {
+      const spikeCount = Math.max(1, Math.floor(el.w / TILE));
+      const spikeW = el.w / spikeCount;
+      ctx.beginPath();
+      for (let i = 0; i < spikeCount; i++) {
+        const sx = el.x + i * spikeW;
+        ctx.moveTo(sx, el.y + el.h);
+        ctx.lineTo(sx + spikeW / 2, el.y);
+        ctx.lineTo(sx + spikeW, el.y + el.h);
+      }
+      ctx.fillStyle = "rgba(255, 100, 100, 0.8)";
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawPreview() {
+  if (!isDrawing || !dragStart || !dragCurrent || dragStart.erase) return;
+  const x1 = Math.min(dragStart.x, dragCurrent.x);
+  const y1 = Math.min(dragStart.y, dragCurrent.y);
+  const w = Math.abs(dragCurrent.x - dragStart.x);
+  const h = Math.abs(dragCurrent.y - dragStart.y);
+  const preview = { type: tool, x: snap(x1), y: snap(y1), w: Math.max(TILE, snap(w)), h: Math.max(TILE, snap(h)) };
+  drawElement(preview, true);
+}
+
+function render() {
+  // Фон
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  drawGrid();
+
+  // Все элементы
+  for (const el of elements) {
+    drawElement(el, false);
+  }
+
+  // Предпросмотр того, что сейчас рисуется
+  drawPreview();
+}
+
+// ---------- КНОПКИ ИНСТРУМЕНТОВ ----------
+const toolButtons = document.querySelectorAll("[data-tool]");
+toolButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    tool = btn.dataset.tool;
+    toolButtons.forEach(b => b.classList.toggle("active", b === btn));
+    canvas.style.cursor = tool === "eraser" ? "not-allowed" : "crosshair";
+  });
+});
+
+// ---------- ЭКСПОРТ / ИМПОРТ ----------
+function buildJSON() {
+  const level = {
+    name: levelNameInput.value.trim() || "Без названия",
+    width: WIDTH,
+    height: HEIGHT,
+    tile: TILE,
+    start: null,
+    finish: null,
+    checkpoints: [],
+    platforms: [],
+    spikes: [],
+  };
+
+  for (const el of elements) {
+    if (el.type === "start") {
+      level.start = { x: el.x, y: el.y };
+    } else if (el.type === "finish") {
+      level.finish = { x: el.x, y: el.y };
+    } else if (el.type === "checkpoint") {
+      level.checkpoints.push({ x: el.x, y: el.y });
+    } else if (el.type === "platform") {
+      level.platforms.push({ x: el.x, y: el.y, w: el.w, h: el.h });
+    } else if (el.type === "spike") {
+      level.spikes.push({ x: el.x, y: el.y, w: el.w, h: el.h });
+    }
+  }
+
+  return level;
+}
+
+document.getElementById("btnCopy").addEventListener("click", async () => {
+  const json = JSON.stringify(buildJSON(), null, 2);
+  try {
+    await navigator.clipboard.writeText(json);
+    setStatus("JSON скопирован в буфер", "success");
+  } catch (err) {
+    setStatus("Не удалось скопировать — скачайте файл", "error");
+  }
+});
+
+document.getElementById("btnExport").addEventListener("click", () => {
+  const level = buildJSON();
+  const json = JSON.stringify(level, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeName = level.name.replace(/[^a-zA-Zа-яА-Я0-9_-]/g, "_");
+  a.href = url;
+  a.download = safeName + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setStatus("Файл скачан", "success");
+});
+
+document.getElementById("btnImport").addEventListener("click", () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const level = JSON.parse(ev.target.result);
+      loadLevel(level);
+      setStatus("Уровень загружен: " + (level.name || "без имени"), "success");
+    } catch (err) {
+      setStatus("Ошибка чтения JSON", "error");
+    }
+  };
+  reader.readAsText(file);
+  fileInput.value = "";
+});
+
+function loadLevel(level) {
+  pushHistory();
+  elements = [];
+
+  if (level.name) levelNameInput.value = level.name;
+
+  if (level.start) {
+    elements.push({ type: "start", x: level.start.x, y: level.start.y });
+  }
+  if (level.finish) {
+    elements.push({ type: "finish", x: level.finish.x, y: level.finish.y });
+  }
+  if (Array.isArray(level.checkpoints)) {
+    for (const c of level.checkpoints) {
+      elements.push({ type: "checkpoint", x: c.x, y: c.y });
+    }
+  }
+  if (Array.isArray(level.platforms)) {
+    for (const p of level.platforms) {
+      elements.push({ type: "platform", x: p.x, y: p.y, w: p.w, h: p.h });
+    }
+  }
+  if (Array.isArray(level.spikes)) {
+    for (const s of level.spikes) {
+      elements.push({ type: "spike", x: s.x, y: s.y, w: s.w, h: s.h });
+    }
+  }
+
+  render();
+}
+
+// ---------- ОЧИСТКА ----------
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (elements.length === 0) return;
+  if (!confirm("Удалить всё с уровня?")) return;
+  pushHistory();
+  elements = [];
+  render();
+  setStatus("Уровень очищен", "success");
+});
+
+// ---------- ОТМЕНА ----------
+document.getElementById("btnUndo").addEventListener("click", undo);
+window.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undo();
+  }
+});
+
+// ---------- СТАРТ ----------
+render();
+setStatus("Готово к работе", "success");
+</script>
+</body>
+</html>
