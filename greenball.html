@@ -16,17 +16,6 @@ canvas {
   touch-action: none; user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-#restartBtn {
-  position: fixed; top: 16px; right: 16px; padding: 10px 18px;
-  background: #2a4a7a; color: #e0f0ff; border: 2px solid #4a80c0;
-  border-radius: 8px; font-family: sans-serif; font-size: 16px;
-  cursor: pointer; z-index: 10; display: none;
-}
-@media (max-width: 900px) and (orientation: portrait) {
-  #restartBtn { top: auto; bottom: 16px; right: 16px;
-    font-size: 14px; padding: 10px 16px; opacity: 0.9;
-    background: rgba(40, 90, 160, 0.85); }
-}
 #loadingOverlay {
   position: fixed; inset: 0; background: #05050a;
   display: flex; justify-content: center; align-items: center;
@@ -38,7 +27,6 @@ canvas {
 </style>
 </head>
 <body>
-<button id="restartBtn">↻ Перезагрузка</button>
 <canvas id="game"></canvas>
 <div id="loadingOverlay">Загрузка профиля…</div>
 
@@ -49,7 +37,14 @@ canvas {
 const SUPABASE_URL = 'https://ggnydsebtekcveckoshr.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdnbnlkc2VidGVrY3ZlY2tvc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNzY2OTgsImV4cCI6MjEwNzY1MjY5OH0.kWoEC6FCr8DF5ASyCcng6QV-MUkn4ai7uW0Ek4rxZ4A';
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'gbe-auth'
+  }
+});
 
 // ============================================================
 // СОСТОЯНИЕ
@@ -151,22 +146,26 @@ async function loadLeaderboard(forceRefresh) {
 }
 
 async function saveScoreToLeaderboard(nick, score, difficulty) {
-  if (!supabaseClient || !nick || score <= 0) return;
+  if (!supabaseClient || !currentUser || score <= 0) return;
   try {
     const { data: existing, error: selectError } = await supabaseClient
       .from('leaderboard')
       .select('id, score')
-      .eq('nickname', nick)
+      .eq('user_id', currentUser.id)
       .order('score', { ascending: false })
       .limit(1);
     if (selectError) throw selectError;
 
     if (!existing || existing.length === 0) {
-      await supabaseClient.from('leaderboard')
-        .insert([{ nickname: nick, score: score, difficulty: difficulty }]);
+      await supabaseClient.from('leaderboard').insert([{
+        user_id: currentUser.id,
+        nickname: nick,
+        score: score,
+        difficulty: difficulty
+      }]);
     } else if (score > existing[0].score) {
       await supabaseClient.from('leaderboard')
-        .update({ score: score, difficulty: difficulty })
+        .update({ score: score, difficulty: difficulty, nickname: nick })
         .eq('id', existing[0].id);
     }
     leaderboardCache = null;
@@ -284,6 +283,11 @@ const HOME_BTN_X = MENU_BTN_GAME_X - 10 - HOME_BTN_SIZE;
 const HOME_BTN_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
 let homeBtnPressed = false;
 
+const RESET_BTN_SIZE = 60;
+const RESET_BTN_X = WIDTH - 16 - RESET_BTN_SIZE;
+const RESET_BTN_Y = HEIGHT - 16 - RESET_BTN_SIZE;
+let resetBtnPressed = false;
+
 const INFO_PANEL_W = Math.min(WIDTH - 40, 700);
 const INFO_PANEL_H = Math.min(HEIGHT - 80, 760);
 const INFO_PANEL_X = (WIDTH - INFO_PANEL_W) / 2;
@@ -351,6 +355,10 @@ function isOnMenuBtnGame(x, y) {
 function isOnHomeBtn(x, y) {
   return x >= HOME_BTN_X && x <= HOME_BTN_X + HOME_BTN_SIZE &&
          y >= HOME_BTN_Y && y <= HOME_BTN_Y + HOME_BTN_SIZE;
+}
+function isOnResetBtn(x, y) {
+  return x >= RESET_BTN_X && x <= RESET_BTN_X + RESET_BTN_SIZE &&
+         y >= RESET_BTN_Y && y <= RESET_BTN_Y + RESET_BTN_SIZE;
 }
 function isOnInfoClose(x, y) {
   return x >= INFO_CLOSE_X && x <= INFO_CLOSE_X + INFO_CLOSE_W &&
@@ -439,11 +447,7 @@ const MENU_BTN_W = Math.min(WIDTH - 80, 420);
 const MENU_BTN_H = 80;
 const MENU_BTN_GAP = 24;
 const MENU_BTN_X = (WIDTH - MENU_BTN_W) / 2;
-const restartBtn = document.getElementById("restartBtn");
 
-function updateRestartBtnVisibility() {
-  restartBtn.style.display = (menuState === "game") ? "" : "none";
-}
 function isInRect(x, y, r) {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
@@ -457,6 +461,7 @@ function getMainMenuButtons() {
     { id: "hub", label: "🏠 В хаб", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 3, w: MENU_BTN_W, h: MENU_BTN_H }
   ];
 }
+
 function getPlayMenuButtons() {
   const top = HEIGHT * 0.38;
   return [
@@ -465,15 +470,49 @@ function getPlayMenuButtons() {
     { id: "back", label: "← Назад", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H }
   ];
 }
+
 function getLevelsMenuButtons() {
-  const top = HEIGHT * 0.30, bh = 70, g = 18;
-  return [
-    { id: "level_0", label: "1. Знакомство", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: bh },
-    { id: "level_1", label: "2. Вверх", x: MENU_BTN_X, y: top + (bh + g), w: MENU_BTN_W, h: bh },
-    { id: "level_2", label: "3. Пропасть", x: MENU_BTN_X, y: top + (bh + g) * 2, w: MENU_BTN_W, h: bh },
-    { id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.82, w: MENU_BTN_W, h: 70 }
+  const buttons = [];
+  const cols = 2;
+  const btnW = (MENU_BTN_W - 12) / 2;
+  const btnH = 60;
+  const gap = 12;
+  const startY = HEIGHT * 0.18;
+  const startX = MENU_BTN_X;
+
+  const levelNames = [
+    "1. Знакомство",
+    "2. Вверх",
+    "3. Пропасть",
+    "4. Спуск",
+    "5. Зигзаг",
+    "6. Башня",
+    "7. Коридор",
+    "8. Хаос"
   ];
+
+  for (let i = 0; i < levelNames.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    buttons.push({
+      id: "level_" + i,
+      label: levelNames[i],
+      x: startX + col * (btnW + gap),
+      y: startY + row * (btnH + gap),
+      w: btnW,
+      h: btnH
+    });
+  }
+
+  buttons.push({
+    id: "back", label: "← Назад",
+    x: MENU_BTN_X, y: HEIGHT * 0.86,
+    w: MENU_BTN_W, h: 70
+  });
+
+  return buttons;
 }
+
 function getLeaderboardButtons() {
   return [{ id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.86, w: MENU_BTN_W, h: MENU_BTN_H }];
 }
@@ -502,7 +541,6 @@ function dispatchMenuAction(id) {
   if (id === "endless") {
     softReset();
     menuState = "game";
-    updateRestartBtnVisibility();
     return;
   }
   if (id === "hub") { location.href = "index.html"; return; }
@@ -518,7 +556,6 @@ function handleMenuClick(x, y) {
 function goToMainMenu() {
   menuState = "main";
   infoOpen = false;
-  updateRestartBtnVisibility();
 }
 
 function softReset() {
@@ -593,6 +630,7 @@ canvas.addEventListener("mousedown", (e) => {
     if (!isOnInfoPanel(p.x, p.y)) infoOpen = false;
     return;
   }
+  if (isOnResetBtn(p.x, p.y)) { resetBtnPressed = true; return; }
   if (isOnCtrlButton(p.x, p.y)) { ctrlBtnPressed = true; return; }
   if (isOnInfoBtn(p.x, p.y)) { infoBtnPressed = true; return; }
   if (isOnHomeBtn(p.x, p.y)) { homeBtnPressed = true; return; }
@@ -610,6 +648,7 @@ canvas.addEventListener("mousemove", (e) => {
 window.addEventListener("mouseup", () => {
   if (infoCloseBtnPressed) { infoCloseBtnPressed = false; infoOpen = false; return; }
   if (infoBtnPressed) { infoBtnPressed = false; infoOpen = true; return; }
+  if (resetBtnPressed) { resetBtnPressed = false; softReset(); return; }
   if (homeBtnPressed) { homeBtnPressed = false; location.href = "index.html"; return; }
   if (menuBtnPressed) { menuBtnPressed = false; goToMainMenu(); return; }
   if (ctrlBtnPressed) { ctrlBtnPressed = false; cycleControlMode(); return; }
@@ -637,6 +676,7 @@ canvas.addEventListener("touchstart", (e) => {
       if (!isOnInfoPanel(p.x, p.y)) infoOpen = false;
       continue;
     }
+    if (isOnResetBtn(p.x, p.y)) { softReset(); continue; }
     if (isOnHomeBtn(p.x, p.y)) { location.href = "index.html"; continue; }
     if (isOnMenuBtnGame(p.x, p.y)) { goToMainMenu(); continue; }
     if (isOnInfoBtn(p.x, p.y)) { infoOpen = true; continue; }
@@ -674,14 +714,6 @@ canvas.addEventListener("touchcancel", (e) => {
       joystickTouchId = null; resetJoystick();
     }
   }
-});
-
-restartBtn.textContent = mobileDevice ? "↻ Сброс" : "↻ Перезагрузка";
-restartBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (infoOpen) { infoOpen = false; return; }
-  if (mobileDevice) softReset();
-  else location.reload();
 });
 
 // ============================================================
@@ -882,6 +914,33 @@ function drawMenuBtnGame(now) {
   const cx = MENU_BTN_GAME_X + MENU_BTN_SIZE/2;
   const cy = MENU_BTN_GAME_Y + MENU_BTN_SIZE/2;
   drawHamburger(cx, cy, 22, "rgb(230, 245, 255)");
+}
+function drawResetBtn(now) {
+  const pressed = resetBtnPressed;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(RESET_BTN_X, RESET_BTN_Y, RESET_BTN_SIZE, RESET_BTN_SIZE, 14);
+  else ctx.rect(RESET_BTN_X, RESET_BTN_Y, RESET_BTN_SIZE, RESET_BTN_SIZE);
+  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.75)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+  else {
+    const r = 100 + Math.round(40 * pulse);
+    const g = 160 + Math.round(30 * pulse);
+    const b = 220 + Math.round(20 * pulse);
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.9)";
+  }
+  ctx.stroke();
+  const cx = RESET_BTN_X + RESET_BTN_SIZE / 2;
+  const cy = RESET_BTN_Y + RESET_BTN_SIZE / 2;
+  ctx.fillStyle = "rgb(230, 245, 255)";
+  ctx.font = "bold 38px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("↻", cx, cy + 2);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
 }
 function drawDiffButton(x, y, w, h, key) {
   const isActive = key === difficulty;
@@ -1555,14 +1614,12 @@ function loop(now) {
     ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 152);
     ctx.fillText("Треугольников: " + triangles.length, 16, 172);
     ctx.fillText("Ракет: " + planes.length, 16, 190);
-    ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 14px sans-serif";
-    if (mobileDevice) ctx.fillText("Кнопка «Сброс» — очищает поле", 16, 214);
-    else ctx.fillText("R — сброс · Esc — меню", 16, 214);
 
     drawCtrlButton(now);
     drawHomeBtn(now);
     drawMenuBtnGame(now);
     drawInfoButton(now);
+    drawResetBtn(now);
 
     if (isDead && !infoOpen) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -1586,8 +1643,7 @@ function loop(now) {
         ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH/2, HEIGHT/2 + 105);
       }
       ctx.fillStyle = "rgb(200, 200, 220)"; ctx.font = "22px sans-serif";
-      if (mobileDevice) ctx.fillText("Нажми «Сброс» чтобы продолжить", WIDTH/2, HEIGHT/2 + 155);
-      else ctx.fillText("R — заново · Esc — меню", WIDTH/2, HEIGHT/2 + 155);
+      ctx.fillText("Нажми ↻ чтобы продолжить", WIDTH/2, HEIGHT/2 + 155);
     }
     if (infoOpen) drawInfoOverlay();
   } else {
@@ -1602,22 +1658,25 @@ function loop(now) {
 // ============================================================
 // ИНИЦИАЛИЗАЦИЯ
 // ============================================================
+async function waitForSession(tries = 5) {
+  for (let i = 0; i < tries; i++) {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session && session.user) return session;
+    await new Promise(r => setTimeout(r, 150));
+  }
+  return null;
+}
+
 async function initGame() {
   try {
-    // ВАЖНО: используем getSession() вместо getUser()
-    // getSession() читает токен из localStorage — работает мгновенно
-    // getUser() делает сетевой запрос — может упасть из-за плохой сети
-    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-
-    if (sessionError || !session || !session.user) {
-      console.warn("Нет сессии, редирект на хаб");
+    const session = await waitForSession();
+    if (!session) {
       location.href = "index.html";
       return;
     }
 
     currentUser = session.user;
 
-    // Загружаем профиль
     const { data, error: profileError } = await supabaseClient
       .from('profiles')
       .select('*')
@@ -1627,7 +1686,6 @@ async function initGame() {
     if (profileError) console.error("Ошибка загрузки профиля:", profileError);
 
     if (!data) {
-      // Профиля нет — создаём с дефолтными данными
       const nick = currentUser.user_metadata?.nickname || 'Игрок';
       const { data: created, error: insertError } = await supabaseClient
         .from('profiles')
@@ -1637,7 +1695,6 @@ async function initGame() {
 
       if (insertError) {
         console.error("Ошибка создания профиля:", insertError);
-        // Продолжаем с дефолтными значениями, но не блокируем игру
         nickname = nick;
         coins = 0;
         ownedSkins = [0];
@@ -1650,7 +1707,6 @@ async function initGame() {
       profile = data;
     }
 
-    // Применяем загруженный профиль
     if (profile) {
       nickname = profile.nickname || "Игрок";
       coins = Number(profile.coins) || 0;
@@ -1668,7 +1724,6 @@ async function initGame() {
     bestScore = bestScores[difficulty] || 0;
     applyDifficulty();
     softReset();
-    updateRestartBtnVisibility();
     loadingOverlay.classList.add("hidden");
     requestAnimationFrame(loop);
   } catch (e) {
@@ -1676,6 +1731,13 @@ async function initGame() {
     loadingOverlay.textContent = "Ошибка загрузки. Откройте хаб заново.";
   }
 }
+
+// Если сессия протухла во время игры — мягко возвращаем в хаб
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) {
+    location.href = "index.html";
+  }
+});
 
 initGame();
 </script>

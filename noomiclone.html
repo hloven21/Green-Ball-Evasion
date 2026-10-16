@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>NoomiClone — клон</title>
+<style>
+  html, body { margin:0; padding:0; background:#87CEEB; overflow:hidden; width:100%; height:100%; font-family:sans-serif; }
+  body { display:flex; justify-content:center; align-items:center; }
+  canvas { display:block; max-width:100vw; max-height:100vh; touch-action:none; }
+  #ui {
+    position:fixed; bottom:10px; left:0; right:0;
+    display:flex; justify-content:space-between; padding:0 10px;
+    pointer-events:none; user-select:none;
+  }
+  .btn-group { display:flex; gap:8px; pointer-events:auto; }
+  .btn {
+    background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.6);
+    border-radius:10px; padding:10px 16px; font-size:16px; font-weight:bold;
+    color:#003; cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .btn:active { background:rgba(255,255,255,0.6); }
+  #hint {
+    position:fixed; top:10px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.5); color:#fff; padding:6px 14px;
+    border-radius:8px; font-size:13px; pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+  <div class="btn-group">
+    <button class="btn" id="btnArch">Прогиб</button>
+    <button class="btn" id="btnTuck">Групп.</button>
+  </div>
+  <div class="btn-group">
+    <button class="btn" id="btnLetGo">Отпустить</button>
+    <button class="btn" id="btnGrab">Захват</button>
+  </div>
+</div>
+<div id="hint">A — прогиб · Space — группировка · W — отпустить · G — захват · R — сброс · S — замедление</div>
+
+<script>
+// ============================================================
+// НАСТРОЙКИ
+// ============================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let W = 1000, H = 600;
+canvas.width = W; canvas.height = H;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+
+const GRAVITY = 1600;
+const SWING_ACCEL = 900;
+const TUCK_FACTOR = 0.6;      // уменьшение момента инерции при группировке
+const ARCH_FACTOR = 1.3;      // увеличение при прогибе
+const MAX_ANGULAR_VEL = 8;
+const RELEASE_BOOST = 1.15;
+const BAR_GRAB_DIST = 55;
+const BAR_RADIUS = 6;
+const BODY_RADIUS = 12;
+const GROUND_Y = H - 60;
+const SLOWMO_FACTOR = 0.25;
+const MAP_COUNT = 3;
+
+// ============================================================
+// СОСТОЯНИЕ
+// ============================================================
+let state = 'menu'; // 'menu' | 'play' | 'result'
+let slowMo = false;
+let regrabs = 0;
+let bestRegrabs = 0;
+let currentMap = 0;
+let mapBars = [];
+let time = 0;
+
+// Гимнаст
+const gymnast = {
+  x: 0, y: 0,
+  vx: 0, vy: 0,
+  angle: 0,
+  angularVel: 0,
+  attached: null,     // индекс турника, к которому прикреплён
+  attachAngle: 0,     // угол прикрепления
+  armLength: 60,      // длина "рук"
+  tuck: false,
+  arch: false,
+  alive: true,
+  rotation: 0,        // накопленный угол в воздухе
+  hasReleased: false,
+};
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ') e.preventDefault();
+  if (e.key.toLowerCase() === 'r') resetAttempt();
+  if (e.key.toLowerCase() === 's') slowMo = !slowMo;
+  if (e.key.toLowerCase() === 'g') tryGrab();
+  if (e.key.toLowerCase() === 'w' || e.key === 'ArrowUp') releaseBar();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// Кнопки
+document.getElementById('btnArch').addEventListener('touchstart', e => { e.preventDefault(); keys['a'] = true; });
+document.getElementById('btnArch').addEventListener('touchend', e => { e.preventDefault(); keys['a'] = false; });
+document.getElementById('btnArch').addEventListener('mousedown', () => keys['a'] = true);
+document.getElementById('btnArch').addEventListener('mouseup', () => keys['a'] = false);
+
+document.getElementById('btnTuck').addEventListener('touchstart', e => { e.preventDefault(); keys[' '] = true; });
+document.getElementById('btnTuck').addEventListener('touchend', e => { e.preventDefault(); keys[' '] = false; });
+document.getElementById('btnTuck').addEventListener('mousedown', () => keys[' '] = true);
+document.getElementById('btnTuck').addEventListener('mouseup', () => keys[' '] = false);
+
+document.getElementById('btnLetGo').addEventListener('click', releaseBar);
+document.getElementById('btnGrab').addEventListener('click', tryGrab);
+
+// ============================================================
+// КАРТЫ
+// ============================================================
+function buildMaps() {
+  const maps = [
+    // Карта 0: классика
+    {
+      bars: [
+        { x: 200, y: 250 },
+        { x: 500, y: 250 },
+        { x: 800, y: 250 },
+      ],
+      start: { x: 200, y: 250 },
+    },
+    // Карта 1: выше
+    {
+      bars: [
+        { x: 200, y: 200 },
+        { x: 550, y: 180 },
+        { x: 850, y: 220 },
+      ],
+      start: { x: 200, y: 200 },
+    },
+    // Карта 2: зигзаг
+    {
+      bars: [
+        { x: 180, y: 300 },
+        { x: 450, y: 220 },
+        { x: 720, y: 300 },
+        { x: 900, y: 200 },
+      ],
+      start: { x: 180, y: 300 },
+    },
+  ];
+  return maps;
+}
+const MAPS = buildMaps();
+
+function loadMap(index) {
+  currentMap = index % MAP_COUNT;
+  mapBars = MAPS[currentMap].bars.map(b => ({ ...b }));
+  resetAttempt();
+}
+
+// ============================================================
+// ЛОГИКА
+// ============================================================
+function resetAttempt() {
+  const start = MAPS[currentMap].start;
+  gymnast.x = start.x;
+  gymnast.y = start.y + 60;
+  gymnast.vx = 0;
+  gymnast.vy = 0;
+  gymnast.angle = Math.PI / 2;
+  gymnast.angularVel = 0;
+  gymnast.attached = 0;
+  gymnast.attachAngle = Math.PI / 2;
+  gymnast.tuck = false;
+  gymnast.arch = false;
+  gymnast.alive = true;
+  gymnast.rotation = 0;
+  gymnast.hasReleased = false;
+  regrabs = 0;
+  time = 0;
+  state = 'play';
+}
+
+function releaseBar() {
+  if (gymnast.attached === null) return;
+  const bar = mapBars[gymnast.attached];
+  const dx = gymnast.x - bar.x;
+  const dy = gymnast.y - bar.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const nx = dx / dist, ny = dy / dist;
+  // Касательная скорость
+  const tx = -ny, ty = nx;
+  const tangSpeed = gymnast.angularVel * gymnast.armLength * RELEASE_BOOST;
+  gymnast.vx = tx * tangSpeed;
+  gymnast.vy = ty * tangSpeed;
+  gymnast.attached = null;
+  gymnast.hasReleased = true;
+  gymnast.rotation = 0;
+}
+
+function tryGrab() {
+  if (gymnast.attached !== null || !gymnast.alive) return;
+  for (let i = 0; i < mapBars.length; i++) {
+    const bar = mapBars[i];
+    const dx = gymnast.x - bar.x;
+    const dy = gymnast.y - bar.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < BAR_GRAB_DIST && dist > 10) {
+      // Успешный захват
+      gymnast.attached = i;
+      gymnast.attachAngle = Math.atan2(dy, dx);
+      gymnast.angularVel = 0;
+      gymnast.armLength = Math.max(40, dist);
+      if (gymnast.hasReleased) {
+        regrabs++;
+        if (regrabs > bestRegrabs) bestRegrabs = regrabs;
+      }
+      gymnast.hasReleased = false;
+      return;
+    }
+  }
+}
+
+function updatePhysics(dt) {
+  if (state !== 'play') return;
+  const factor = slowMo ? SLOWMO_FACTOR : 1;
+  const d = dt * factor;
+  time += d;
+
+  gymnast.tuck = keys[' '] || keys['space'];
+  gymnast.arch = keys['a'] || keys['arrowleft'];
+
+  if (gymnast.attached !== null) {
+    // Маятник
+    const bar = mapBars[gymnast.attached];
+    const dx = gymnast.x - bar.x;
+    const dy = gymnast.y - bar.y;
+    let angle = Math.atan2(dy, dx);
+    // Угловое ускорение маятника: -g/L * sin(theta)
+    const L = gymnast.armLength;
+    let accel = -(GRAVITY / L) * Math.sin(angle);
+    // Влияние группировки/прогиба
+    if (gymnast.tuck) accel *= TUCK_FACTOR;
+    else if (gymnast.arch) accel *= ARCH_FACTOR;
+    gymnast.angularVel += accel * d;
+    gymnast.angularVel = Math.max(-MAX_ANGULAR_VEL, Math.min(MAX_ANGULAR_VEL, gymnast.angularVel));
+    angle += gymnast.angularVel * d;
+    gymnast.x = bar.x + Math.cos(angle) * L;
+    gymnast.y = bar.y + Math.sin(angle) * L;
+    gymnast.attachAngle = angle;
+    gymnast.rotation = 0;
+  } else {
+    // Свободный полёт
+    gymnast.vy += GRAVITY * d;
+    gymnast.x += gymnast.vx * d;
+    gymnast.y += gymnast.vy * d;
+    // Вращение в воздухе
+    let spin = gymnast.angularVel;
+    if (gymnast.tuck) spin += 6 * d;
+    else if (gymnast.arch) spin -= 4 * d;
+    else spin *= 0.98;
+    gymnast.angularVel = spin;
+    gymnast.rotation += spin * d;
+    gymnast.angle += spin * d;
+    // Затухание
+    gymnast.vx *= 0.999;
+    gymnast.vy *= 0.999;
+  }
+
+  // Границы
+  if (gymnast.x < 20) { gymnast.x = 20; gymnast.vx = Math.abs(gymnast.vx) * 0.5; }
+  if (gymnast.x > W - 20) { gymnast.x = W - 20; gymnast.vx = -Math.abs(gymnast.vx) * 0.5; }
+
+  // Приземление
+  if (gymnast.y > GROUND_Y - BODY_RADIUS) {
+    gymnast.y = GROUND_Y - BODY_RADIUS;
+    gymnast.vy = 0;
+    gymnast.vx *= 0.8;
+    gymnast.angularVel *= 0.9;
+    // Если скорость небольшая — остановка
+    if (Math.abs(gymnast.vx) < 10 && Math.abs(gymnast.angularVel) < 1) {
+      gymnast.alive = false;
+      state = 'result';
+    }
+  }
+}
+
+// ============================================================
+// РИСОВАНИЕ
+// ============================================================
+function drawBackground() {
+  // Небо
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#4A90D9');
+  grad.addColorStop(0.6, '#87CEEB');
+  grad.addColorStop(1, '#B0E0E6');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Облака
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  const clouds = [
+    [150, 80, 60], [400, 120, 80], [700, 60, 50], [900, 140, 70], [250, 180, 40],
+  ];
+  for (const [x, y, s] of clouds) {
+    ctx.beginPath();
+    ctx.arc(x, y, s, 0, Math.PI * 2);
+    ctx.arc(x + s * 0.8, y - s * 0.3, s * 0.7, 0, Math.PI * 2);
+    ctx.arc(x + s * 1.5, y, s * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Земля
+  ctx.fillStyle = '#C0392B';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillStyle = '#E74C3C';
+  ctx.fillRect(0, GROUND_Y, W, 8);
+
+  // Тени на земле
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(gymnast.x, GROUND_Y + 10, 30, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBars() {
+  for (const bar of mapBars) {
+    // Стойка
+    ctx.fillStyle = '#D5D0C8';
+    ctx.fillRect(bar.x - 8, bar.y, 16, GROUND_Y - bar.y);
+    // Тень стойки
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(bar.x + 4, bar.y + 10, 8, GROUND_Y - bar.y - 10);
+    // Перекладина
+    ctx.fillStyle = '#A0A0A0';
+    ctx.beginPath();
+    ctx.arc(bar.x, bar.y, BAR_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#707070';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Блик
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.arc(bar.x - 2, bar.y - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGymnast() {
+  const g = gymnast;
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  ctx.rotate(g.angle + Math.PI / 2);
+
+  // Тень
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(0, 15, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Тело (торс)
+  ctx.fillStyle = '#2C2C2C';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 8, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Голова
+  ctx.fillStyle = '#3A3A3A';
+  ctx.beginPath();
+  ctx.arc(0, -14, 9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Руки (упрощённо)
+  ctx.strokeStyle = '#2C2C2C';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  // Левая рука
+  ctx.beginPath();
+  ctx.moveTo(-6, -8);
+  ctx.lineTo(-12, -20);
+  ctx.stroke();
+  // Правая рука
+  ctx.beginPath();
+  ctx.moveTo(6, -8);
+  ctx.lineTo(12, -20);
+  ctx.stroke();
+
+  // Ноги
+  ctx.beginPath();
+  ctx.moveTo(-4, 12);
+  ctx.lineTo(-8, 24);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(4, 12);
+  ctx.lineTo(8, 24);
+  ctx.stroke();
+
+  // Группировка — визуальный эффект
+  if (g.tuck) {
+    ctx.fillStyle = 'rgba(255,200,0,0.15)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (g.arch) {
+    ctx.strokeStyle = 'rgba(0,200,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, -0.5, 0.5);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Индикатор прикрепления
+  if (g.attached !== null) {
+    const bar = mapBars[g.attached];
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y);
+    ctx.lineTo(bar.x, bar.y);
+    ctx.stroke();
+  }
+}
+
+function drawUI() {
+  // Счётчик перехватов
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(regrabs + ' перехватов', W / 2, 40);
+
+  // Лучший результат
+  ctx.font = '16px sans-serif';
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText('Лучший: ' + bestRegrabs, W / 2, 68);
+
+  // Замедление
+  if (slowMo) {
+    ctx.fillStyle = 'rgba(255,255,0,0.3)';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('ЗАМЕДЛЕНИЕ', W / 2, H - 30);
+  }
+
+  // Карта
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Карта: ' + (currentMap + 1) + '/' + MAP_COUNT, 20, 30);
+  ctx.fillText('R — сброс', 20, 50);
+
+  // Результат
+  if (state === 'result') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ПОПЫТКА ЗАВЕРШЕНА', W / 2, H / 2 - 40);
+    ctx.font = '32px sans-serif';
+    ctx.fillText('Перехватов: ' + regrabs, W / 2, H / 2 + 20);
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Нажми R, чтобы попробовать снова', W / 2, H / 2 + 70);
+  }
+}
+
+// ============================================================
+// ЦИКЛ
+// ============================================================
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  updatePhysics(dt);
+
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawBars();
+  drawGymnast();
+  drawUI();
+
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// СТАРТ
+// ============================================================
+loadMap(0);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
