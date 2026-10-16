@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Зелёный шар</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+html, body { margin: 0; padding: 0; background: #05050a; overflow: hidden; width: 100%; height: 100%; }
+body { display: flex; justify-content: center; align-items: center; height: 100vh; height: 100dvh; }
+canvas {
+  display: block; border: 2px solid #1a2a4a;
+  box-shadow: 0 0 40px rgba(30, 80, 180, 0.4);
+  max-width: 98vw; max-height: 98vh; max-height: 98dvh;
+  width: auto; height: auto; cursor: crosshair;
+  touch-action: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#restartBtn {
+  position: fixed; top: 16px; right: 16px; padding: 10px 18px;
+  background: #2a4a7a; color: #e0f0ff; border: 2px solid #4a80c0;
+  border-radius: 8px; font-family: sans-serif; font-size: 16px;
+  cursor: pointer; z-index: 10; display: none;
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  #restartBtn { top: auto; bottom: 16px; right: 16px;
+    font-size: 14px; padding: 10px 16px; opacity: 0.9;
+    background: rgba(40, 90, 160, 0.85); }
+}
+#loadingOverlay {
+  position: fixed; inset: 0; background: #05050a;
+  display: flex; justify-content: center; align-items: center;
+  z-index: 200; color: #8aa8c8;
+  font-family: sans-serif; font-size: 18px;
+  text-align: center; padding: 20px;
+}
+#loadingOverlay.hidden { display: none; }
+</style>
+</head>
+<body>
+<button id="restartBtn">↻ Перезагрузка</button>
+<canvas id="game"></canvas>
+<div id="loadingOverlay">Загрузка профиля…</div>
+
+<script>
+// ============================================================
+// SUPABASE
+// ============================================================
+const SUPABASE_URL = 'https://ggnydsebtekcveckoshr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdnbnlkc2VidGVrY3ZlY2tvc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNzY2OTgsImV4cCI6MjEwNzY1MjY5OH0.kWoEC6FCr8DF5ASyCcng6QV-MUkn4ai7uW0Ek4rxZ4A';
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// СОСТОЯНИЕ
+// ============================================================
+let currentUser = null;
+let profile = null;
+let coins = 0;
+let ownedSkins = [0];
+let selectedSkin = 0;
+let bestScores = { easy: 0, medium: 0, hard: 0 };
+let nickname = "";
+
+// ============================================================
+// СКИНЫ
+// ============================================================
+const SKINS = [
+  { rgb: [80, 230, 120],  cost: 0  },
+  { rgb: [230, 60, 60],   cost: 10 },
+  { rgb: [240, 140, 40],  cost: 10 },
+  { rgb: [240, 220, 60],  cost: 10 },
+  { rgb: [200, 240, 80],  cost: 10 },
+  { rgb: [140, 240, 140], cost: 10 },
+  { rgb: [60, 220, 170],  cost: 10 },
+  { rgb: [60, 200, 220],  cost: 10 },
+  { rgb: [70, 170, 240],  cost: 10 },
+  { rgb: [70, 120, 230],  cost: 10 },
+  { rgb: [100, 90, 220],  cost: 10 },
+  { rgb: [150, 80, 220],  cost: 10 },
+  { rgb: [200, 80, 200],  cost: 10 },
+  { rgb: [230, 70, 160],  cost: 10 },
+  { rgb: [240, 100, 130], cost: 10 },
+  { rgb: [240, 120, 100], cost: 10 }
+];
+
+function getSkinColors() {
+  const s = SKINS[selectedSkin] || SKINS[0];
+  const [r, g, b] = s.rgb;
+  return {
+    light: "rgb(" + Math.min(255,r+80) + "," + Math.min(255,g+80) + "," + Math.min(255,b+80) + ")",
+    base: "rgb(" + r + "," + g + "," + b + ")",
+    dark: "rgb(" + Math.max(0,r-60) + "," + Math.max(0,g-60) + "," + Math.max(0,b-60) + ")",
+    outline: "rgb(" + Math.min(255,r+100) + "," + Math.min(255,g+100) + "," + Math.min(255,b+100) + ")"
+  };
+}
+
+// ============================================================
+// СОХРАНЕНИЕ ПРОФИЛЯ
+// ============================================================
+let saveTimer = null;
+function scheduleProfileSave() {
+  if (!currentUser) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveProfileNow, 500);
+}
+async function saveProfileNow() {
+  if (!currentUser) return;
+  saveTimer = null;
+  try {
+    await supabaseClient.from('profiles').update({
+      coins: coins,
+      owned_skins: ownedSkins,
+      selected_skin: selectedSkin,
+      best_easy: bestScores.easy,
+      best_medium: bestScores.medium,
+      best_hard: bestScores.hard
+    }).eq('id', currentUser.id);
+  } catch(e) { console.error("Ошибка сохранения профиля:", e); }
+}
+
+// ============================================================
+// ЛИДЕРБОРД
+// ============================================================
+let leaderboardCache = null;
+let leaderboardCacheTime = 0;
+const LEADERBOARD_CACHE_MS = 5000;
+
+async function loadLeaderboard(forceRefresh) {
+  if (!supabaseClient) return [];
+  const now = Date.now();
+  if (!forceRefresh && leaderboardCache && (now - leaderboardCacheTime) < LEADERBOARD_CACHE_MS) {
+    return leaderboardCache;
+  }
+  try {
+    const { data, error } = await supabaseClient
+      .from('leaderboard')
+      .select('nickname, score, difficulty, created_at')
+      .order('score', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    leaderboardCache = (data || []).map(r => ({
+      nick: r.nickname, score: r.score, difficulty: r.difficulty
+    }));
+    leaderboardCacheTime = now;
+    return leaderboardCache;
+  } catch(e) {
+    console.error("Ошибка загрузки лидерборда:", e);
+    return leaderboardCache || [];
+  }
+}
+
+async function saveScoreToLeaderboard(nick, score, difficulty) {
+  if (!supabaseClient || !nick || score <= 0) return;
+  try {
+    const { data: existing, error: selectError } = await supabaseClient
+      .from('leaderboard')
+      .select('id, score')
+      .eq('nickname', nick)
+      .order('score', { ascending: false })
+      .limit(1);
+    if (selectError) throw selectError;
+
+    if (!existing || existing.length === 0) {
+      await supabaseClient.from('leaderboard')
+        .insert([{ nickname: nick, score: score, difficulty: difficulty }]);
+    } else if (score > existing[0].score) {
+      await supabaseClient.from('leaderboard')
+        .update({ score: score, difficulty: difficulty })
+        .eq('id', existing[0].id);
+    }
+    leaderboardCache = null;
+  } catch(e) { console.error("Ошибка сохранения счёта:", e); }
+}
+
+// ============================================================
+// ИГРА
+// ============================================================
+const uaIsMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+const hasTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+const mobileDevice = uaIsMobile || (hasTouch && window.innerWidth < 900);
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const loadingOverlay = document.getElementById("loadingOverlay");
+
+let WIDTH, HEIGHT;
+if (mobileDevice) { WIDTH = 800; HEIGHT = 1200; }
+else { WIDTH = 1200; HEIGHT = 800; }
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+canvas.style.aspectRatio = WIDTH + " / " + HEIGHT;
+
+const DIFF_NAMES = { easy: "Лёгкая", medium: "Средняя", hard: "Сложная" };
+const DIFF_COLORS = { easy: "rgb(140,230,150)", medium: "rgb(250,220,100)", hard: "rgb(255,130,110)" };
+const DIFF_MULT = { easy: 2/3, medium: 1, hard: 1.5 };
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
+let difficulty = "medium";
+let bestScore = 0;
+
+const SPEED = 320;
+const BALL_RADIUS = 18;
+const ENEMY_RADIUS = BALL_RADIUS / 2;
+const WARNING_TIME = 1.0;
+
+const SPAWN_INTERVAL_INIT = 1.2;
+let SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
+const SPAWN_MIN = 0.3;
+const SPEEDUP_EVERY = 5;
+const SPEEDUP_FACTOR = 0.85;
+
+const TRIANGLE_SIZE = 14;
+const TRIANGLE_LIFETIME = 6.0;
+const TRIANGLE_SPAWN_INTERVAL = 2.5;
+const TRIANGLE_WARNING_TIME = 1.0;
+const TRIANGLE_TURN_RATE = 3.0;
+const TRIANGLE_GRIP = 2.2;
+const DRIFT_THRESHOLD = 0.35;
+const TRIANGLE_COLOR = "rgb(255, 120, 0)";
+
+const PLANE_SIZE = 16;
+const PLANE_SPAWN_INTERVAL = 1.75;
+const PLANE_EXPLOSION_RADIUS = BALL_RADIUS * 4;
+const PLANE_DANGER_DELAY = 0.30;
+const PLANE_MAX_PATH = 1600;
+
+let ENEMY_SPEED = 320;
+let TRIANGLE_SPEED = 210;
+let PLANE_SPEED = 210;
+
+function applyDifficulty() {
+  const m = DIFF_MULT[difficulty];
+  ENEMY_SPEED = 320 * m;
+  TRIANGLE_SPEED = 210 * m;
+  PLANE_SPEED = 210 * m;
+}
+
+const CONTROL_MODES = ["keyboard", "mouse", "touch"];
+let controlModeIndex = mobileDevice ? 2 : 0;
+let controlMode = CONTROL_MODES[controlModeIndex];
+
+let mouseX = WIDTH / 2;
+let mouseY = HEIGHT / 2;
+const MOUSE_DEADZONE = 4;
+
+const JOYSTICK_BASE_RADIUS = 120;
+const JOYSTICK_KNOB_RADIUS = 55;
+const JOYSTICK_MAX_DIST = JOYSTICK_BASE_RADIUS - 12;
+const JOYSTICK_MARGIN = 60;
+const JOYSTICK_GRAB_RADIUS = JOYSTICK_BASE_RADIUS * 1.4;
+const JOYSTICK_DEADZONE = 0.15;
+const JOYSTICK_CX = JOYSTICK_MARGIN + JOYSTICK_BASE_RADIUS;
+const JOYSTICK_CY = HEIGHT - JOYSTICK_MARGIN - JOYSTICK_BASE_RADIUS;
+
+let joystickTouchId = null;
+let joystickMouseDown = false;
+let joystickKnobX = JOYSTICK_CX;
+let joystickKnobY = JOYSTICK_CY;
+let joystickDirX = 0;
+let joystickDirY = 0;
+let joystickMagnitude = 0;
+
+const CTRL_BTN_W = 280;
+const CTRL_BTN_H = 68;
+const CTRL_BTN_X = WIDTH - 16 - CTRL_BTN_W;
+const CTRL_BTN_Y = 16;
+let ctrlBtnPressed = false;
+
+const INFO_BTN_SIZE = 50;
+const INFO_BTN_X = WIDTH - 16 - INFO_BTN_SIZE;
+const INFO_BTN_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
+let infoBtnPressed = false;
+let infoOpen = false;
+let infoCloseBtnPressed = false;
+
+const MENU_BTN_SIZE = 50;
+const MENU_BTN_GAME_X = WIDTH - 16 - INFO_BTN_SIZE - 10 - MENU_BTN_SIZE;
+const MENU_BTN_GAME_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
+let menuBtnPressed = false;
+
+const HOME_BTN_SIZE = 50;
+const HOME_BTN_X = MENU_BTN_GAME_X - 10 - HOME_BTN_SIZE;
+const HOME_BTN_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
+let homeBtnPressed = false;
+
+const INFO_PANEL_W = Math.min(WIDTH - 40, 700);
+const INFO_PANEL_H = Math.min(HEIGHT - 80, 760);
+const INFO_PANEL_X = (WIDTH - INFO_PANEL_W) / 2;
+const INFO_PANEL_Y = (HEIGHT - INFO_PANEL_H) / 2;
+
+const INFO_CLOSE_W = 200;
+const INFO_CLOSE_H = 54;
+const INFO_CLOSE_X = WIDTH / 2 - INFO_CLOSE_W / 2;
+const INFO_CLOSE_Y = INFO_PANEL_Y + INFO_PANEL_H - INFO_CLOSE_H - 24;
+
+const DIFF_PAD = 36;
+const DIFF_AVAIL_W = INFO_PANEL_W - DIFF_PAD * 2;
+const DIFF_BTN_GAP = 20;
+const DIFF_BTN_W = (DIFF_AVAIL_W - DIFF_BTN_GAP * 2) / 3;
+const DIFF_BTN_H = 54;
+const DIFF_SECTION_Y = INFO_PANEL_Y + 370;
+const DIFF_BTN_Y = DIFF_SECTION_Y + 32;
+const DIFF_BTN_X1 = INFO_PANEL_X + DIFF_PAD;
+const DIFF_BTN_X2 = DIFF_BTN_X1 + DIFF_BTN_W + DIFF_BTN_GAP;
+const DIFF_BTN_X3 = DIFF_BTN_X2 + DIFF_BTN_W + DIFF_BTN_GAP;
+
+const SHOP_COLS = 4;
+const SHOP_RADIUS = 40;
+const SHOP_GAP = 18;
+const SHOP_CELL = SHOP_RADIUS * 2 + SHOP_GAP;
+const SHOP_GRID_W = SHOP_COLS * SHOP_CELL - SHOP_GAP;
+const SHOP_GRID_X = (WIDTH - SHOP_GRID_W) / 2;
+const SHOP_GRID_Y = HEIGHT * 0.30;
+
+function getSkinCellPos(i) {
+  return {
+    cx: SHOP_GRID_X + (i % SHOP_COLS) * SHOP_CELL + SHOP_RADIUS,
+    cy: SHOP_GRID_Y + Math.floor(i / SHOP_COLS) * SHOP_CELL + SHOP_RADIUS
+  };
+}
+function getSkinAt(x, y) {
+  for (let i = 0; i < SKINS.length; i++) {
+    const p = getSkinCellPos(i);
+    const dx = x - p.cx, dy = y - p.cy;
+    if (dx * dx + dy * dy <= SHOP_RADIUS * SHOP_RADIUS) return i;
+  }
+  return -1;
+}
+function handleSkinClick(idx) {
+  if (idx < 0 || idx >= SKINS.length) return;
+  if (ownedSkins.includes(idx)) {
+    selectedSkin = idx;
+    scheduleProfileSave();
+  } else if (coins >= SKINS[idx].cost) {
+    coins -= SKINS[idx].cost;
+    ownedSkins.push(idx);
+    selectedSkin = idx;
+    scheduleProfileSave();
+  }
+}
+
+function isOnInfoBtn(x, y) {
+  return x >= INFO_BTN_X && x <= INFO_BTN_X + INFO_BTN_SIZE &&
+         y >= INFO_BTN_Y && y <= INFO_BTN_Y + INFO_BTN_SIZE;
+}
+function isOnMenuBtnGame(x, y) {
+  return x >= MENU_BTN_GAME_X && x <= MENU_BTN_GAME_X + MENU_BTN_SIZE &&
+         y >= MENU_BTN_GAME_Y && y <= MENU_BTN_GAME_Y + MENU_BTN_SIZE;
+}
+function isOnHomeBtn(x, y) {
+  return x >= HOME_BTN_X && x <= HOME_BTN_X + HOME_BTN_SIZE &&
+         y >= HOME_BTN_Y && y <= HOME_BTN_Y + HOME_BTN_SIZE;
+}
+function isOnInfoClose(x, y) {
+  return x >= INFO_CLOSE_X && x <= INFO_CLOSE_X + INFO_CLOSE_W &&
+         y >= INFO_CLOSE_Y && y <= INFO_CLOSE_Y + INFO_CLOSE_H;
+}
+function isOnInfoPanel(x, y) {
+  return x >= INFO_PANEL_X && x <= INFO_PANEL_X + INFO_PANEL_W &&
+         y >= INFO_PANEL_Y && y <= INFO_PANEL_Y + INFO_PANEL_H;
+}
+function isOnCtrlButton(x, y) {
+  return x >= CTRL_BTN_X && x <= CTRL_BTN_X + CTRL_BTN_W &&
+         y >= CTRL_BTN_Y && y <= CTRL_BTN_Y + CTRL_BTN_H;
+}
+function getDiffButtonAt(x, y) {
+  if (y < DIFF_BTN_Y || y > DIFF_BTN_Y + DIFF_BTN_H) return null;
+  if (x >= DIFF_BTN_X1 && x <= DIFF_BTN_X1 + DIFF_BTN_W) return "easy";
+  if (x >= DIFF_BTN_X2 && x <= DIFF_BTN_X2 + DIFF_BTN_W) return "medium";
+  if (x >= DIFF_BTN_X3 && x <= DIFF_BTN_X3 + DIFF_BTN_W) return "hard";
+  return null;
+}
+
+function cycleControlMode() {
+  controlModeIndex = (controlModeIndex + 1) % CONTROL_MODES.length;
+  controlMode = CONTROL_MODES[controlModeIndex];
+  if (controlMode !== "touch") {
+    joystickTouchId = null;
+    joystickMouseDown = false;
+    resetJoystick();
+  }
+}
+function getModeText() {
+  if (controlMode === "keyboard") return "WASD";
+  if (controlMode === "mouse") return "МЫШЬ";
+  return "ДЖОЙСТИК";
+}
+function getModeColor() {
+  if (controlMode === "keyboard") return "rgb(160, 220, 180)";
+  if (controlMode === "mouse") return "rgb(160, 200, 255)";
+  return "rgb(255, 200, 130)";
+}
+function isInJoystickZone(x, y) {
+  const dx = x - JOYSTICK_CX;
+  const dy = y - JOYSTICK_CY;
+  return (dx * dx + dy * dy) <= JOYSTICK_GRAB_RADIUS * JOYSTICK_GRAB_RADIUS;
+}
+function setJoystickFromPoint(x, y) {
+  const dx = x - JOYSTICK_CX;
+  const dy = y - JOYSTICK_CY;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 0.001) { resetJoystick(); return; }
+  const nx = dx / d, ny = dy / d;
+  const cd = Math.min(d, JOYSTICK_MAX_DIST);
+  joystickKnobX = JOYSTICK_CX + nx * cd;
+  joystickKnobY = JOYSTICK_CY + ny * cd;
+  joystickDirX = nx; joystickDirY = ny;
+  joystickMagnitude = Math.min(1, d / JOYSTICK_MAX_DIST);
+}
+function resetJoystick() {
+  joystickKnobX = JOYSTICK_CX;
+  joystickKnobY = JOYSTICK_CY;
+  joystickDirX = 0; joystickDirY = 0; joystickMagnitude = 0;
+}
+
+let px = WIDTH / 2;
+let py = HEIGHT / 2;
+const keys = {};
+const enemies = [];
+const triangles = [];
+const planes = [];
+const explosions = [];
+const skidMarks = [];
+
+let spawnTimer = 0;
+let speedupTimer = 0;
+let triangleSpawnTimer = 0;
+let planeSpawnTimer = 0;
+let isDead = false;
+let scoreSavedThisLife = false;
+let coinsEarnedThisLife = 0;
+let score = 0;
+let scoreTimer = 0;
+const SCORE_PER_SECOND = 10;
+
+let menuState = "main";
+const MENU_BTN_W = Math.min(WIDTH - 80, 420);
+const MENU_BTN_H = 80;
+const MENU_BTN_GAP = 24;
+const MENU_BTN_X = (WIDTH - MENU_BTN_W) / 2;
+const restartBtn = document.getElementById("restartBtn");
+
+function updateRestartBtnVisibility() {
+  restartBtn.style.display = (menuState === "game") ? "" : "none";
+}
+function isInRect(x, y, r) {
+  return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+function getMainMenuButtons() {
+  const top = HEIGHT * 0.26;
+  return [
+    { id: "play", label: "Играть", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
+    { id: "shop", label: "Магазин", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP), w: MENU_BTN_W, h: MENU_BTN_H },
+    { id: "leaders", label: "Таблица лидеров", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H },
+    { id: "hub", label: "🏠 В хаб", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 3, w: MENU_BTN_W, h: MENU_BTN_H }
+  ];
+}
+function getPlayMenuButtons() {
+  const top = HEIGHT * 0.38;
+  return [
+    { id: "endless", label: "Бесконечно", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
+    { id: "levels", label: "Уровни", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP), w: MENU_BTN_W, h: MENU_BTN_H },
+    { id: "back", label: "← Назад", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H }
+  ];
+}
+function getLevelsMenuButtons() {
+  const top = HEIGHT * 0.30, bh = 70, g = 18;
+  return [
+    { id: "level_0", label: "1. Знакомство", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: bh },
+    { id: "level_1", label: "2. Вверх", x: MENU_BTN_X, y: top + (bh + g), w: MENU_BTN_W, h: bh },
+    { id: "level_2", label: "3. Пропасть", x: MENU_BTN_X, y: top + (bh + g) * 2, w: MENU_BTN_W, h: bh },
+    { id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.82, w: MENU_BTN_W, h: 70 }
+  ];
+}
+function getLeaderboardButtons() {
+  return [{ id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.86, w: MENU_BTN_W, h: MENU_BTN_H }];
+}
+function getShopButtons() {
+  return [{ id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.92, w: MENU_BTN_W, h: 70 }];
+}
+function getActiveMenuButtons() {
+  if (menuState === "main") return getMainMenuButtons();
+  if (menuState === "play_menu") return getPlayMenuButtons();
+  if (menuState === "levels") return getLevelsMenuButtons();
+  if (menuState === "leaderboard") return getLeaderboardButtons();
+  if (menuState === "shop") return getShopButtons();
+  return [];
+}
+
+function dispatchMenuAction(id) {
+  if (id === "play") { menuState = "play_menu"; return; }
+  if (id === "levels") { menuState = "levels"; return; }
+  if (id.startsWith("level_")) {
+    const n = parseInt(id.replace("level_", ""), 10);
+    location.href = "parkour.html?level=" + n;
+    return;
+  }
+  if (id === "shop") { menuState = "shop"; return; }
+  if (id === "leaders") { menuState = "leaderboard"; leaderboardCache = null; return; }
+  if (id === "endless") {
+    softReset();
+    menuState = "game";
+    updateRestartBtnVisibility();
+    return;
+  }
+  if (id === "hub") { location.href = "index.html"; return; }
+  if (id === "back") { menuState = "main"; return; }
+}
+function handleMenuClick(x, y) {
+  for (const b of getActiveMenuButtons()) {
+    if (b.disabled) continue;
+    if (isInRect(x, y, b)) { dispatchMenuAction(b.id); return true; }
+  }
+  return false;
+}
+function goToMainMenu() {
+  menuState = "main";
+  infoOpen = false;
+  updateRestartBtnVisibility();
+}
+
+function softReset() {
+  enemies.length = 0; triangles.length = 0; planes.length = 0;
+  explosions.length = 0; skidMarks.length = 0;
+  px = WIDTH / 2; py = HEIGHT / 2;
+  spawnTimer = 0; speedupTimer = 0;
+  triangleSpawnTimer = 0; planeSpawnTimer = 0;
+  SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
+  score = 0; scoreTimer = 0;
+  isDead = false; scoreSavedThisLife = false;
+  coinsEarnedThisLife = 0;
+  joystickTouchId = null; joystickMouseDown = false;
+  resetJoystick();
+}
+
+function setDifficulty(newDiff) {
+  if (newDiff === difficulty) return;
+  difficulty = newDiff;
+  applyDifficulty();
+  bestScore = bestScores[difficulty] || 0;
+  score = 0;
+  softReset();
+}
+
+window.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === "escape") {
+    if (infoOpen) { infoOpen = false; return; }
+    if (menuState === "game") { goToMainMenu(); return; }
+    if (["play_menu", "leaderboard", "shop", "levels"].includes(menuState)) {
+      menuState = "main"; return;
+    }
+    return;
+  }
+  if (menuState !== "game") return;
+  if (infoOpen) return;
+  if (k === "r" || k === "к") softReset();
+  if (k === "q" || k === "й") cycleControlMode();
+});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+
+function canvasCoords(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = WIDTH / rect.width;
+  const sy = HEIGHT / rect.height;
+  return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
+}
+function updateMouse(e) {
+  const p = canvasCoords(e.clientX, e.clientY);
+  mouseX = Math.max(0, Math.min(WIDTH, p.x));
+  mouseY = Math.max(0, Math.min(HEIGHT, p.y));
+}
+canvas.addEventListener("mousemove", updateMouse);
+
+canvas.addEventListener("mousedown", (e) => {
+  updateMouse(e);
+  const p = canvasCoords(e.clientX, e.clientY);
+  if (menuState !== "game") {
+    if (menuState === "shop") {
+      const i = getSkinAt(p.x, p.y);
+      if (i >= 0) { handleSkinClick(i); return; }
+    }
+    handleMenuClick(p.x, p.y);
+    return;
+  }
+  if (infoOpen) {
+    if (isOnInfoClose(p.x, p.y)) { infoCloseBtnPressed = true; return; }
+    const d = getDiffButtonAt(p.x, p.y);
+    if (d) { setDifficulty(d); return; }
+    if (!isOnInfoPanel(p.x, p.y)) infoOpen = false;
+    return;
+  }
+  if (isOnCtrlButton(p.x, p.y)) { ctrlBtnPressed = true; return; }
+  if (isOnInfoBtn(p.x, p.y)) { infoBtnPressed = true; return; }
+  if (isOnHomeBtn(p.x, p.y)) { homeBtnPressed = true; return; }
+  if (isOnMenuBtnGame(p.x, p.y)) { menuBtnPressed = true; return; }
+  if (controlMode === "touch" && isInJoystickZone(p.x, p.y)) {
+    joystickMouseDown = true;
+    setJoystickFromPoint(p.x, p.y);
+  }
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (menuState !== "game" || infoOpen || !joystickMouseDown) return;
+  const p = canvasCoords(e.clientX, e.clientY);
+  setJoystickFromPoint(p.x, p.y);
+});
+window.addEventListener("mouseup", () => {
+  if (infoCloseBtnPressed) { infoCloseBtnPressed = false; infoOpen = false; return; }
+  if (infoBtnPressed) { infoBtnPressed = false; infoOpen = true; return; }
+  if (homeBtnPressed) { homeBtnPressed = false; location.href = "index.html"; return; }
+  if (menuBtnPressed) { menuBtnPressed = false; goToMainMenu(); return; }
+  if (ctrlBtnPressed) { ctrlBtnPressed = false; cycleControlMode(); return; }
+  if (joystickMouseDown) { joystickMouseDown = false; resetJoystick(); }
+});
+
+function touchToCanvas(t) { return canvasCoords(t.clientX, t.clientY); }
+
+canvas.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const p = touchToCanvas(t);
+    if (menuState !== "game") {
+      if (menuState === "shop") {
+        const i = getSkinAt(p.x, p.y);
+        if (i >= 0) { handleSkinClick(i); continue; }
+      }
+      handleMenuClick(p.x, p.y);
+      continue;
+    }
+    if (infoOpen) {
+      if (isOnInfoClose(p.x, p.y)) { infoOpen = false; continue; }
+      const d = getDiffButtonAt(p.x, p.y);
+      if (d) { setDifficulty(d); continue; }
+      if (!isOnInfoPanel(p.x, p.y)) infoOpen = false;
+      continue;
+    }
+    if (isOnHomeBtn(p.x, p.y)) { location.href = "index.html"; continue; }
+    if (isOnMenuBtnGame(p.x, p.y)) { goToMainMenu(); continue; }
+    if (isOnInfoBtn(p.x, p.y)) { infoOpen = true; continue; }
+    if (isOnCtrlButton(p.x, p.y)) { cycleControlMode(); continue; }
+    if (controlMode === "touch" && joystickTouchId === null && isInJoystickZone(p.x, p.y)) {
+      joystickTouchId = t.identifier;
+      setJoystickFromPoint(p.x, p.y);
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+  e.preventDefault();
+  if (menuState !== "game" || infoOpen) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) {
+      const p = touchToCanvas(t);
+      setJoystickFromPoint(p.x, p.y);
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) {
+      joystickTouchId = null; resetJoystick();
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener("touchcancel", (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) {
+      joystickTouchId = null; resetJoystick();
+    }
+  }
+});
+
+restartBtn.textContent = mobileDevice ? "↻ Сброс" : "↻ Перезагрузка";
+restartBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (infoOpen) { infoOpen = false; return; }
+  if (mobileDevice) softReset();
+  else location.reload();
+});
+
+// ============================================================
+// РИСОВАНИЕ
+// ============================================================
+function drawTriangle(x, y, angle, fill) {
+  const r = TRIANGLE_SIZE;
+  const h = r * Math.sqrt(3) / 2;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(r, 0); ctx.lineTo(-r/2, -h); ctx.lineTo(-r/2, h);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.restore();
+}
+function drawPlane(x, y, angle, fill) {
+  const s = PLANE_SIZE;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(s, 0);
+  ctx.lineTo(-s*0.3, -s*0.25); ctx.lineTo(-s*0.3, -s*0.9);
+  ctx.lineTo(-s*0.7, -s*0.9); ctx.lineTo(-s*0.7, -s*0.25);
+  ctx.lineTo(-s, -s*0.25); ctx.lineTo(-s, s*0.25);
+  ctx.lineTo(-s*0.7, s*0.25); ctx.lineTo(-s*0.7, s*0.9);
+  ctx.lineTo(-s*0.3, s*0.9); ctx.lineTo(-s*0.3, s*0.25);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.restore();
+}
+function drawCoinIcon(cx, cy, r) {
+  const grad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
+  grad.addColorStop(0, "rgb(255, 245, 170)");
+  grad.addColorStop(0.5, "rgb(255, 210, 70)");
+  grad.addColorStop(1, "rgb(200, 140, 20)");
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.lineWidth = Math.max(2, r*0.12);
+  ctx.strokeStyle = "rgb(255, 240, 150)"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r*0.7, 0, Math.PI*2);
+  ctx.lineWidth = Math.max(1, r*0.08);
+  ctx.strokeStyle = "rgba(180, 120, 0, 0.6)"; ctx.stroke();
+  ctx.fillStyle = "rgba(120, 80, 0, 0.85)";
+  ctx.font = "bold " + Math.round(r*1.4) + "px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("$", cx, cy + r*0.05);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawGear(cx, cy, oR, iR, teeth, hR, fill) {
+  const steps = teeth * 4;
+  const off = -Math.PI / 2;
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const a = off + (i / steps) * Math.PI * 2;
+    const ph = i % 4;
+    const r = (ph === 0 || ph === 1) ? oR : iR;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.moveTo(cx + hR, cy);
+  ctx.arc(cx, cy, hR, 0, Math.PI*2, true);
+  ctx.fillStyle = fill; ctx.fill();
+}
+function drawHamburger(cx, cy, size, color) {
+  const w = size;
+  const h = Math.max(2, size * 0.12);
+  const gap = size * 0.28;
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - w/2, cy - gap - h/2, w, h);
+  ctx.fillRect(cx - w/2, cy - h/2, w, h);
+  ctx.fillRect(cx - w/2, cy + gap - h/2, w, h);
+}
+function drawJoystick() {
+  const active = joystickTouchId !== null || joystickMouseDown;
+  ctx.beginPath(); ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS, 0, Math.PI*2);
+  ctx.fillStyle = "rgba(60, 100, 160, 0.25)"; ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(120, 170, 230, 0.55)"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS * 0.5, 0, Math.PI*2);
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(120, 170, 230, 0.25)"; ctx.stroke();
+  if (joystickMagnitude > 0.05) {
+    ctx.beginPath();
+    ctx.moveTo(JOYSTICK_CX, JOYSTICK_CY);
+    ctx.lineTo(joystickKnobX, joystickKnobY);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = active ? "rgba(180, 220, 255, 0.7)" : "rgba(150, 200, 255, 0.35)";
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(joystickKnobX, joystickKnobY, JOYSTICK_KNOB_RADIUS, 0, Math.PI*2);
+  ctx.fillStyle = active ? "rgba(120, 200, 255, 0.65)" : "rgba(90, 150, 220, 0.45)";
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = active ? "rgba(220, 240, 255, 0.95)" : "rgba(140, 190, 240, 0.7)";
+  ctx.stroke();
+  if (joystickMagnitude > 0.1) {
+    const dx = joystickKnobX + joystickDirX * 18;
+    const dy = joystickKnobY + joystickDirY * 18;
+    ctx.beginPath(); ctx.arc(dx, dy, 6, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)"; ctx.fill();
+  }
+}
+function drawCtrlButton(now) {
+  const mt = getModeText();
+  const mc = getModeColor();
+  const pressed = ctrlBtnPressed;
+  const glow = 0.5 + 0.5 * Math.sin(now / 400);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H, 12);
+  else ctx.rect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H);
+  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.9)" : "rgba(30, 55, 100, 0.65)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+  else {
+    const r = 80 + Math.round(40 * glow);
+    const g = 140 + Math.round(50 * glow);
+    const b = 200 + Math.round(40 * glow);
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.9)";
+  }
+  ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = mc; ctx.font = "bold 22px sans-serif";
+  ctx.fillText("Управление: " + mt, CTRL_BTN_X + CTRL_BTN_W/2, CTRL_BTN_Y + 24);
+  ctx.fillStyle = "rgba(200, 220, 245, 0.75)"; ctx.font = "13px sans-serif";
+  ctx.fillText("Нажми, чтобы сменить (или Q)", CTRL_BTN_X + CTRL_BTN_W/2, CTRL_BTN_Y + 48);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawInfoButton(now) {
+  const pressed = infoBtnPressed;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(INFO_BTN_X, INFO_BTN_Y, INFO_BTN_SIZE, INFO_BTN_SIZE, 12);
+  else ctx.rect(INFO_BTN_X, INFO_BTN_Y, INFO_BTN_SIZE, INFO_BTN_SIZE);
+  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.7)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+  else {
+    const r = 100 + Math.round(40 * pulse);
+    const g = 160 + Math.round(30 * pulse);
+    const b = 220 + Math.round(20 * pulse);
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.9)";
+  }
+  ctx.stroke();
+  const cx = INFO_BTN_X + INFO_BTN_SIZE/2;
+  const cy = INFO_BTN_Y + INFO_BTN_SIZE/2;
+  drawGear(cx, cy, 15, 10, 8, 5, "rgb(230, 245, 255)");
+}
+function drawHomeBtn(now) {
+  const pressed = homeBtnPressed;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(HOME_BTN_X, HOME_BTN_Y, HOME_BTN_SIZE, HOME_BTN_SIZE, 12);
+  else ctx.rect(HOME_BTN_X, HOME_BTN_Y, HOME_BTN_SIZE, HOME_BTN_SIZE);
+  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.7)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+  else {
+    const r = 100 + Math.round(40 * pulse);
+    const g = 160 + Math.round(30 * pulse);
+    const b = 220 + Math.round(20 * pulse);
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.9)";
+  }
+  ctx.stroke();
+  const cx = HOME_BTN_X + HOME_BTN_SIZE / 2;
+  const cy = HOME_BTN_Y + HOME_BTN_SIZE / 2;
+  const w = 22;
+  const h = 22;
+  ctx.fillStyle = "rgb(230, 245, 255)";
+  ctx.beginPath();
+  ctx.moveTo(cx - w/2, cy - h*0.05);
+  ctx.lineTo(cx, cy - h/2);
+  ctx.lineTo(cx + w/2, cy - h*0.05);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(cx - w*0.35, cy - h*0.05, w*0.7, h*0.5);
+  ctx.fillStyle = "rgba(30, 55, 100, 0.85)";
+  ctx.fillRect(cx - w*0.1, cy + h*0.15, w*0.2, h*0.3);
+}
+function drawMenuBtnGame(now) {
+  const pressed = menuBtnPressed;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE, 12);
+  else ctx.rect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE);
+  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.7)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
+  else {
+    const r = 100 + Math.round(40 * pulse);
+    const g = 160 + Math.round(30 * pulse);
+    const b = 220 + Math.round(20 * pulse);
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.9)";
+  }
+  ctx.stroke();
+  const cx = MENU_BTN_GAME_X + MENU_BTN_SIZE/2;
+  const cy = MENU_BTN_GAME_Y + MENU_BTN_SIZE/2;
+  drawHamburger(cx, cy, 22, "rgb(230, 245, 255)");
+}
+function drawDiffButton(x, y, w, h, key) {
+  const isActive = key === difficulty;
+  const col = DIFF_COLORS[key];
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 10);
+  else ctx.rect(x, y, w, h);
+  ctx.fillStyle = isActive ? "rgba(60, 110, 180, 0.9)" : "rgba(25, 45, 85, 0.7)";
+  ctx.fill();
+  ctx.lineWidth = isActive ? 3 : 2;
+  ctx.strokeStyle = isActive ? col : "rgba(120, 170, 230, 0.5)";
+  ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = isActive ? col : "rgb(200, 220, 245)";
+  ctx.font = "bold 20px sans-serif";
+  ctx.fillText(DIFF_NAMES[key], x + w/2, y + h/2);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawInfoOverlay() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(INFO_PANEL_X, INFO_PANEL_Y, INFO_PANEL_W, INFO_PANEL_H, 16);
+  else ctx.rect(INFO_PANEL_X, INFO_PANEL_Y, INFO_PANEL_W, INFO_PANEL_H);
+  ctx.fillStyle = "rgba(18, 30, 60, 0.98)"; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(120, 170, 230, 0.85)"; ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "bold 34px sans-serif";
+  ctx.fillText("Об игре", WIDTH/2, INFO_PANEL_Y + 22);
+  ctx.strokeStyle = "rgba(120, 170, 230, 0.3)"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(INFO_PANEL_X + 30, INFO_PANEL_Y + 72);
+  ctx.lineTo(INFO_PANEL_X + INFO_PANEL_W - 30, INFO_PANEL_Y + 72);
+  ctx.stroke();
+  const lx = INFO_PANEL_X + 36;
+  let y = INFO_PANEL_Y + 94;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
+  ctx.fillText("УПРАВЛЕНИЕ", lx, y); y += 30;
+  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
+  ctx.fillText("• WASD / ЦФЫВ — движение", lx, y); y += 22;
+  ctx.fillText("• Мышь — шар следует за курсором", lx, y); y += 22;
+  ctx.fillText("• Джойстик — управление на телефоне", lx, y); y += 22;
+  ctx.fillText("• Q — сменить режим управления", lx, y); y += 22;
+  ctx.fillText("• R — сброс уровня без перезагрузки", lx, y); y += 38;
+  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
+  ctx.fillText("ВРАГИ", lx, y); y += 30;
+  ctx.beginPath(); ctx.arc(lx + 10, y + 9, 9, 0, Math.PI*2);
+  ctx.fillStyle = "rgb(250, 220, 60)"; ctx.fill();
+  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
+  ctx.fillText("Жёлтый шар — летит в вашу позицию", lx + 30, y); y += 28;
+  ctx.beginPath();
+  ctx.moveTo(lx + 20, y);
+  ctx.lineTo(lx, y + 18);
+  ctx.lineTo(lx + 20, y + 18);
+  ctx.closePath();
+  ctx.fillStyle = "rgb(255, 120, 0)"; ctx.fill();
+  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
+  ctx.fillText("Треугольник — преследует, взрыв через 6 сек", lx + 30, y); y += 28;
+  ctx.beginPath();
+  ctx.moveTo(lx + 20, y + 9);
+  ctx.lineTo(lx + 6, y + 4); ctx.lineTo(lx + 6, y + 14);
+  ctx.closePath();
+  ctx.fillStyle = "rgb(240, 240, 250)"; ctx.fill();
+  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
+  ctx.fillText("Ракета — взрыв через 0.3 сек, если вы в красной зоне", lx + 30, y);
+
+  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
+  ctx.fillText("СЛОЖНОСТЬ", lx, DIFF_SECTION_Y);
+  drawDiffButton(DIFF_BTN_X1, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "easy");
+  drawDiffButton(DIFF_BTN_X2, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "medium");
+  drawDiffButton(DIFF_BTN_X3, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "hard");
+
+  const by = DIFF_BTN_Y + DIFF_BTN_H + 8;
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.font = "bold 15px sans-serif";
+  ctx.fillStyle = "rgba(180, 220, 255, 0.85)";
+  ctx.fillText("Рекорд: " + bestScores.easy, DIFF_BTN_X1 + DIFF_BTN_W/2, by);
+  ctx.fillText("Рекорд: " + bestScores.medium, DIFF_BTN_X2 + DIFF_BTN_W/2, by);
+  ctx.fillText("Рекорд: " + bestScores.hard, DIFF_BTN_X3 + DIFF_BTN_W/2, by);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(INFO_CLOSE_X, INFO_CLOSE_Y, INFO_CLOSE_W, INFO_CLOSE_H, 12);
+  else ctx.rect(INFO_CLOSE_X, INFO_CLOSE_Y, INFO_CLOSE_W, INFO_CLOSE_H);
+  ctx.fillStyle = infoCloseBtnPressed ? "rgba(90, 150, 220, 0.95)" : "rgba(50, 110, 180, 0.9)";
+  ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(180, 220, 255, 0.9)"; ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgb(255, 255, 255)"; ctx.font = "bold 20px sans-serif";
+  ctx.fillText("Понятно", INFO_CLOSE_X + INFO_CLOSE_W/2, INFO_CLOSE_Y + INFO_CLOSE_H/2);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawMenuButton(btn, now) {
+  const hov = isInRect(mouseX, mouseY, btn);
+  const dis = !!btn.disabled;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 14);
+  else ctx.rect(btn.x, btn.y, btn.w, btn.h);
+  if (dis) ctx.fillStyle = "rgba(30, 40, 60, 0.5)";
+  else if (hov) ctx.fillStyle = "rgba(60, 110, 180, 0.9)";
+  else ctx.fillStyle = "rgba(30, 60, 110, 0.75)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  if (dis) ctx.strokeStyle = "rgba(80, 100, 130, 0.5)";
+  else if (hov) ctx.strokeStyle = "rgba(200, 230, 255, 0.95)";
+  else ctx.strokeStyle = "rgba(120, 170, 230, 0.7)";
+  ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = dis ? "rgba(160, 180, 200, 0.6)" : "rgb(235, 245, 255)";
+  ctx.font = "bold 26px sans-serif";
+  ctx.fillText(btn.label, btn.x + btn.w/2, btn.y + btn.h/2);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawMenuTitle(title, subtitle) {
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const size = Math.min(WIDTH * 0.09, 82);
+  ctx.fillStyle = "rgb(235, 245, 255)"; ctx.font = "bold " + size + "px sans-serif";
+  ctx.fillText(title, WIDTH/2, HEIGHT * 0.11);
+  if (subtitle) {
+    ctx.fillStyle = "rgba(160, 200, 240, 0.85)"; ctx.font = "18px sans-serif";
+    ctx.fillText(subtitle, WIDTH/2, HEIGHT * 0.11 + size * 0.8);
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawSkinCell(i) {
+  const s = SKINS[i];
+  const p = getSkinCellPos(i);
+  const own = ownedSkins.includes(i);
+  const eq = selectedSkin === i;
+  const [r, g, b] = s.rgb;
+  const cr = SHOP_RADIUS + 6;
+
+  ctx.beginPath(); ctx.arc(p.cx, p.cy, cr, 0, Math.PI*2);
+  ctx.fillStyle = eq ? "rgba(255, 220, 80, 0.25)" :
+                  own ? "rgba(60, 110, 180, 0.35)" :
+                        "rgba(30, 45, 75, 0.4)";
+  ctx.fill();
+
+  const grad = ctx.createRadialGradient(
+    p.cx - SHOP_RADIUS*0.3, p.cy - SHOP_RADIUS*0.3, SHOP_RADIUS*0.15,
+    p.cx, p.cy, SHOP_RADIUS);
+  grad.addColorStop(0, "rgb(" + Math.min(255,r+80) + "," + Math.min(255,g+80) + "," + Math.min(255,b+80) + ")");
+  grad.addColorStop(0.5, "rgb(" + r + "," + g + "," + b + ")");
+  grad.addColorStop(1, "rgb(" + Math.max(0,r-60) + "," + Math.max(0,g-60) + "," + Math.max(0,b-60) + ")");
+
+  ctx.beginPath(); ctx.arc(p.cx, p.cy, SHOP_RADIUS, 0, Math.PI*2);
+  ctx.fillStyle = grad; ctx.fill();
+
+  ctx.lineWidth = eq ? 3 : 2;
+  if (eq) ctx.strokeStyle = "rgb(255, 220, 80)";
+  else if (own) ctx.strokeStyle = "rgba(180, 220, 255, 0.7)";
+  else ctx.strokeStyle = "rgba(120, 170, 230, 0.4)";
+  ctx.stroke();
+
+  if (own) {
+    ctx.beginPath();
+    ctx.arc(p.cx - SHOP_RADIUS*0.35, p.cy - SHOP_RADIUS*0.35, SHOP_RADIUS*0.22, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)"; ctx.fill();
+  }
+
+  if (!own) {
+    ctx.beginPath(); ctx.arc(p.cx, p.cy, SHOP_RADIUS, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.55)"; ctx.fill();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.font = "bold " + Math.round(SHOP_RADIUS*0.8) + "px sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("?", p.cx, p.cy + 2);
+  }
+
+  const ly = p.cy + SHOP_RADIUS + 14;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  if (eq || own) {
+    ctx.fillStyle = eq ? "rgb(255, 220, 80)" : "rgba(180, 220, 255, 0.8)";
+    ctx.font = "bold 13px sans-serif";
+    ctx.fillText("✓", p.cx, ly);
+  } else {
+    drawCoinIcon(p.cx - 12, ly, 7);
+    ctx.fillStyle = coins >= s.cost ? "rgb(255, 220, 100)" : "rgba(255, 120, 120, 0.9)";
+    ctx.font = "bold 13px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(String(s.cost), p.cx - 2, ly);
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+}
+function drawMainMenu(now) {
+  drawMenuTitle("Green Ball Evasion", "Уворачивайся. Выживай.");
+  if (nickname) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(160, 200, 240, 0.7)"; ctx.font = "18px sans-serif";
+    ctx.fillText("Игрок: " + nickname, WIDTH/2, HEIGHT * 0.80);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  drawCoinIcon(WIDTH/2 - 50, HEIGHT * 0.85, 14);
+  ctx.fillStyle = "rgb(255, 220, 100)"; ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(String(coins), WIDTH/2 - 26, HEIGHT * 0.85 + 1);
+  ctx.textAlign = "center"; ctx.font = "13px sans-serif";
+  ctx.fillStyle = "rgba(140, 220, 160, 0.7)";
+  ctx.fillText("Профиль синхронизирован", WIDTH/2, HEIGHT * 0.90);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  for (const b of getMainMenuButtons()) drawMenuButton(b, now);
+}
+function drawPlayMenu(now) {
+  drawMenuTitle("Режим игры", "Выбери, как играть");
+  for (const b of getPlayMenuButtons()) drawMenuButton(b, now);
+}
+function drawLevelsMenu(now) {
+  drawMenuTitle("Выбор уровня", "Пройди все уровни паркура");
+  for (const b of getLevelsMenuButtons()) drawMenuButton(b, now);
+}
+function drawShop(now) {
+  drawMenuTitle("Магазин", "Скины для шара — 10 монет");
+
+  const pw = Math.min(WIDTH - 80, 420);
+  const ph = 70;
+  const pxx = (WIDTH - pw) / 2;
+  const pyy = HEIGHT * 0.20;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(pxx, pyy, pw, ph, 14);
+  else ctx.rect(pxx, pyy, pw, ph);
+  const g = ctx.createLinearGradient(pxx, pyy, pxx, pyy + ph);
+  g.addColorStop(0, "rgba(60, 90, 140, 0.85)");
+  g.addColorStop(1, "rgba(30, 50, 90, 0.9)");
+  ctx.fillStyle = g; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 220, 100, 0.6)"; ctx.stroke();
+  drawCoinIcon(pxx + 40, pyy + ph/2, 18);
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgb(255, 240, 170)"; ctx.font = "bold 26px sans-serif";
+  ctx.fillText(String(coins), pxx + 68, pyy + ph/2);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(200, 220, 245, 0.7)"; ctx.font = "13px sans-serif";
+  ctx.fillText("100 очков = 1 монета", pxx + pw - 18, pyy + ph/2);
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+
+  for (let i = 0; i < SKINS.length; i++) drawSkinCell(i);
+  for (const b of getShopButtons()) drawMenuButton(b, now);
+}
+let leaderboardLoading = false;
+function drawLeaderboard(now) {
+  drawMenuTitle("Таблица лидеров", "Лучшие результаты игроков");
+  const lt = HEIGHT * 0.34, lb = HEIGHT * 0.78, ah = lb - lt;
+  let list = leaderboardCache || [];
+  if (!leaderboardLoading && supabaseClient) {
+    leaderboardLoading = true;
+    loadLeaderboard().then(() => leaderboardLoading = false);
+  }
+  if (list.length === 0) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if (leaderboardLoading) {
+      ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 22px sans-serif";
+      ctx.fillText("Загрузка...", WIDTH/2, HEIGHT * 0.5);
+    } else {
+      ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 22px sans-serif";
+      ctx.fillText("Пока нет результатов", WIDTH/2, HEIGHT * 0.5);
+    }
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+  } else {
+    const rw = Math.min(WIDTH - 40, 640);
+    const rh = 56, rg = 8;
+    const rx = (WIDTH - rw) / 2;
+    const maxRows = Math.max(1, Math.floor((ah + rg) / (rh + rg)));
+    const shown = Math.min(list.length, maxRows);
+    for (let i = 0; i < shown; i++) {
+      const e = list[i];
+      const y = lt + i * (rh + rg);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(rx, y, rw, rh, 10);
+      else ctx.rect(rx, y, rw, rh);
+      let rc = "rgba(30, 55, 100, 0.6)";
+      if (i === 0) rc = "rgba(140, 115, 20, 0.55)";
+      else if (i === 1) rc = "rgba(85, 90, 105, 0.55)";
+      else if (i === 2) rc = "rgba(105, 70, 35, 0.55)";
+      ctx.fillStyle = rc; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(120, 170, 230, 0.4)"; ctx.stroke();
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      let rankCol = "rgb(200, 220, 245)";
+      if (i === 0) rankCol = "rgb(255, 220, 100)";
+      else if (i === 1) rankCol = "rgb(220, 230, 245)";
+      else if (i === 2) rankCol = "rgb(230, 175, 110)";
+      ctx.fillStyle = rankCol; ctx.font = "bold 20px sans-serif";
+      ctx.fillText("#" + (i + 1), rx + 22, y + rh/2);
+      ctx.fillStyle = "rgb(235, 245, 255)"; ctx.font = "bold 20px sans-serif";
+      ctx.fillText(e.nick || "???", rx + 82, y + rh/2);
+      const dc = DIFF_COLORS[e.difficulty] || DIFF_COLORS.medium;
+      ctx.beginPath(); ctx.arc(rx + rw - 150, y + rh/2, 7, 0, Math.PI*2);
+      ctx.fillStyle = dc; ctx.fill();
+      ctx.fillStyle = "rgba(200, 220, 245, 0.7)"; ctx.font = "14px sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(DIFF_NAMES[e.difficulty] || "?", rx + rw - 32, y + rh/2 - 8);
+      ctx.fillStyle = "rgb(250, 220, 100)"; ctx.font = "bold 22px sans-serif";
+      ctx.fillText(String(e.score), rx + rw - 32, y + rh/2 + 10);
+    }
+  }
+  if (nickname) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(160, 200, 240, 0.7)"; ctx.font = "16px sans-serif";
+    ctx.fillText("Твой ник: " + nickname, WIDTH/2, HEIGHT * 0.79);
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  for (const b of getLeaderboardButtons()) drawMenuButton(b, now);
+}
+function drawMenuScreen(now) {
+  if (menuState === "main") drawMainMenu(now);
+  else if (menuState === "play_menu") drawPlayMenu(now);
+  else if (menuState === "levels") drawLevelsMenu(now);
+  else if (menuState === "leaderboard") drawLeaderboard(now);
+  else if (menuState === "shop") drawShop(now);
+}
+
+function spawnEnemy() {
+  const side = Math.floor(Math.random() * 4);
+  let ex, ey;
+  if (side === 0) { ex = Math.random() * (WIDTH - 2*ENEMY_RADIUS) + ENEMY_RADIUS; ey = ENEMY_RADIUS; }
+  else if (side === 1) { ex = WIDTH - ENEMY_RADIUS; ey = Math.random() * (HEIGHT - 2*ENEMY_RADIUS) + ENEMY_RADIUS; }
+  else if (side === 2) { ex = Math.random() * (WIDTH - 2*ENEMY_RADIUS) + ENEMY_RADIUS; ey = HEIGHT - ENEMY_RADIUS; }
+  else { ex = ENEMY_RADIUS; ey = Math.random() * (HEIGHT - 2*ENEMY_RADIUS) + ENEMY_RADIUS; }
+  enemies.push({ x: ex, y: ey, dx: 0, dy: 0, state: "warning", warningTimer: 0 });
+}
+function spawnTriangle() {
+  const side = Math.floor(Math.random() * 4);
+  let tx, ty;
+  if (side === 0) { tx = Math.random() * (WIDTH - 2*TRIANGLE_SIZE) + TRIANGLE_SIZE; ty = TRIANGLE_SIZE; }
+  else if (side === 1) { tx = WIDTH - TRIANGLE_SIZE; ty = Math.random() * (HEIGHT - 2*TRIANGLE_SIZE) + TRIANGLE_SIZE; }
+  else if (side === 2) { tx = Math.random() * (WIDTH - 2*TRIANGLE_SIZE) + TRIANGLE_SIZE; ty = HEIGHT - TRIANGLE_SIZE; }
+  else { tx = TRIANGLE_SIZE; ty = Math.random() * (HEIGHT - 2*TRIANGLE_SIZE) + TRIANGLE_SIZE; }
+  triangles.push({ x: tx, y: ty, vx: 0, vy: 0, angle: 0, age: 0, state: "warning", warningTimer: 0, lastSkidX: tx, lastSkidY: ty });
+}
+function spawnPlane() {
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = Math.random() * (WIDTH - 2*PLANE_SIZE) + PLANE_SIZE; y = PLANE_SIZE; }
+  else if (side === 1) { x = WIDTH - PLANE_SIZE; y = Math.random() * (HEIGHT - 2*PLANE_SIZE) + PLANE_SIZE; }
+  else if (side === 2) { x = Math.random() * (WIDTH - 2*PLANE_SIZE) + PLANE_SIZE; y = HEIGHT - PLANE_SIZE; }
+  else { x = PLANE_SIZE; y = Math.random() * (HEIGHT - 2*PLANE_SIZE) + PLANE_SIZE; }
+  const tx = px, ty = py;
+  let dx = tx - x, dy = ty - y;
+  const len = Math.sqrt(dx*dx + dy*dy) || 1;
+  dx /= len; dy /= len;
+  planes.push({ x: x, y: y, dx: dx, dy: dy, angle: Math.atan2(dy, dx), traveled: 0, inZoneTimer: 0 });
+}
+
+// ============================================================
+// ГЛАВНЫЙ ЦИКЛ
+// ============================================================
+let lastTime = performance.now();
+
+function loop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  if (menuState === "game") {
+    if (!isDead && !infoOpen) {
+      let dx = 0, dy = 0;
+      if (controlMode === "keyboard") {
+        if (keys["a"] || keys["ф"]) dx -= 1;
+        if (keys["d"] || keys["в"]) dx += 1;
+        if (keys["w"] || keys["ц"]) dy -= 1;
+        if (keys["s"] || keys["ы"]) dy += 1;
+        if (dx !== 0 && dy !== 0) {
+          const l = Math.sqrt(dx*dx + dy*dy);
+          dx /= l; dy /= l;
+        }
+        px += dx * SPEED * dt;
+        py += dy * SPEED * dt;
+      } else if (controlMode === "mouse") {
+        const mdx = mouseX - px, mdy = mouseY - py;
+        const d = Math.sqrt(mdx*mdx + mdy*mdy);
+        if (d > MOUSE_DEADZONE) {
+          const step = SPEED * dt;
+          if (step >= d) { px = mouseX; py = mouseY; }
+          else { px += (mdx/d) * step; py += (mdy/d) * step; }
+        }
+      } else {
+        if (joystickMagnitude > JOYSTICK_DEADZONE && (joystickDirX !== 0 || joystickDirY !== 0)) {
+          px += joystickDirX * SPEED * dt;
+          py += joystickDirY * SPEED * dt;
+        }
+      }
+      if (px < BALL_RADIUS) px = BALL_RADIUS;
+      if (px > WIDTH - BALL_RADIUS) px = WIDTH - BALL_RADIUS;
+      if (py < BALL_RADIUS) py = BALL_RADIUS;
+      if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
+
+      scoreTimer += dt;
+      if (scoreTimer >= 1) {
+        scoreTimer -= 1;
+        score += SCORE_PER_SECOND;
+        if (score > bestScore) {
+          bestScore = score;
+          bestScores[difficulty] = score;
+          scheduleProfileSave();
+        }
+      }
+      speedupTimer += dt;
+      if (speedupTimer >= SPEEDUP_EVERY) {
+        speedupTimer -= SPEEDUP_EVERY;
+        SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
+      }
+      spawnTimer += dt;
+      if (spawnTimer >= SPAWN_INTERVAL) { spawnTimer -= SPAWN_INTERVAL; spawnEnemy(); }
+      triangleSpawnTimer += dt;
+      if (triangleSpawnTimer >= TRIANGLE_SPAWN_INTERVAL) { triangleSpawnTimer -= TRIANGLE_SPAWN_INTERVAL; spawnTriangle(); }
+      planeSpawnTimer += dt;
+      if (planeSpawnTimer >= PLANE_SPAWN_INTERVAL) { planeSpawnTimer -= PLANE_SPAWN_INTERVAL; spawnPlane(); }
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        if (e.state === "warning") {
+          e.warningTimer += dt;
+          if (e.warningTimer >= WARNING_TIME) {
+            let ddx = px - e.x, ddy = py - e.y;
+            const l = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+            e.dx = ddx/l; e.dy = ddy/l;
+            e.state = "attack";
+          }
+        } else {
+          e.x += e.dx * ENEMY_SPEED * dt;
+          e.y += e.dy * ENEMY_SPEED * dt;
+          if (e.x < -ENEMY_RADIUS || e.x > WIDTH + ENEMY_RADIUS ||
+              e.y < -ENEMY_RADIUS || e.y > HEIGHT + ENEMY_RADIUS) {
+            enemies.splice(i, 1); continue;
+          }
+          const ddx = e.x - px, ddy = e.y - py;
+          const d = Math.sqrt(ddx*ddx + ddy*ddy);
+          if (d < ENEMY_RADIUS + BALL_RADIUS) {
+            isDead = true;
+            enemies.length = 0; triangles.length = 0; planes.length = 0;
+            break;
+          }
+        }
+      }
+
+      if (!isDead) {
+        for (let i = triangles.length - 1; i >= 0; i--) {
+          const t = triangles[i];
+          if (t.state === "warning") {
+            t.warningTimer += dt;
+            const adx = px - t.x, ady = py - t.y;
+            const ta = Math.atan2(ady, adx);
+            let diff = ta - t.angle;
+            while (diff > Math.PI) diff -= Math.PI*2;
+            while (diff < -Math.PI) diff += Math.PI*2;
+            t.angle += diff * Math.min(1, TRIANGLE_TURN_RATE * dt);
+            if (t.warningTimer >= TRIANGLE_WARNING_TIME) { t.state = "attack"; t.age = 0; }
+            continue;
+          }
+          t.age += dt;
+          if (t.age >= TRIANGLE_LIFETIME) {
+            explosions.push({ x: t.x, y: t.y, t: 0, duration: 0.45, maxRadius: 42, killsPlayer: false });
+            triangles.splice(i, 1); continue;
+          }
+          const ddx = px - t.x, ddy = py - t.y;
+          const ta = Math.atan2(ddy, ddx);
+          let diff = ta - t.angle;
+          while (diff > Math.PI) diff -= Math.PI*2;
+          while (diff < -Math.PI) diff += Math.PI*2;
+          const mt = TRIANGLE_TURN_RATE * dt;
+          if (Math.abs(diff) > mt) t.angle += Math.sign(diff) * mt;
+          else t.angle = ta;
+          const ivx = Math.cos(t.angle) * TRIANGLE_SPEED;
+          const ivy = Math.sin(t.angle) * TRIANGLE_SPEED;
+          const grip = Math.min(1, TRIANGLE_GRIP * dt);
+          t.vx += (ivx - t.vx) * grip;
+          t.vy += (ivy - t.vy) * grip;
+          t.x += t.vx * dt; t.y += t.vy * dt;
+          const va = Math.atan2(t.vy, t.vx);
+          let dd = va - t.angle;
+          while (dd > Math.PI) dd -= Math.PI*2;
+          while (dd < -Math.PI) dd += Math.PI*2;
+          const da = Math.abs(dd);
+          const cs = Math.sqrt(t.vx*t.vx + t.vy*t.vy);
+          if (da > DRIFT_THRESHOLD && cs > 60) {
+            const skdx = t.x - t.lastSkidX, skdy = t.y - t.lastSkidY;
+            const skd = Math.sqrt(skdx*skdx + skdy*skdy);
+            if (skd > 6) {
+              const px2 = Math.cos(t.angle + Math.PI/2) * TRIANGLE_SIZE * 0.7;
+              const py2 = Math.sin(t.angle + Math.PI/2) * TRIANGLE_SIZE * 0.7;
+              skidMarks.push({ x: t.x - px2, y: t.y - py2, t: 0, life: 0.9, intensity: Math.min(1, (da - DRIFT_THRESHOLD) * 2) });
+              skidMarks.push({ x: t.x + px2, y: t.y + py2, t: 0, life: 0.9, intensity: Math.min(1, (da - DRIFT_THRESHOLD) * 2) });
+              t.lastSkidX = t.x; t.lastSkidY = t.y;
+            }
+          } else {
+            t.lastSkidX = t.x; t.lastSkidY = t.y;
+          }
+          const dtp = Math.sqrt((t.x - px)*(t.x - px) + (t.y - py)*(t.y - py));
+          if (dtp < TRIANGLE_SIZE * 0.7 + BALL_RADIUS) {
+            isDead = true;
+            enemies.length = 0; triangles.length = 0; planes.length = 0;
+            break;
+          }
+        }
+      }
+
+      if (!isDead) {
+        for (let i = planes.length - 1; i >= 0; i--) {
+          const p = planes[i];
+          p.x += p.dx * PLANE_SPEED * dt;
+          p.y += p.dy * PLANE_SPEED * dt;
+          p.traveled += PLANE_SPEED * dt;
+          if (p.traveled > PLANE_MAX_PATH) { planes.splice(i, 1); continue; }
+          const ddx = px - p.x, ddy = py - p.y;
+          const d = Math.sqrt(ddx*ddx + ddy*ddy);
+          if (d < PLANE_EXPLOSION_RADIUS) {
+            p.inZoneTimer += dt;
+            if (p.inZoneTimer >= PLANE_DANGER_DELAY) {
+              explosions.push({
+                x: p.x, y: p.y, t: 0, duration: 0.7,
+                maxRadius: PLANE_EXPLOSION_RADIUS * 1.4,
+                lethalRadius: PLANE_EXPLOSION_RADIUS,
+                killsPlayer: true
+              });
+              planes.splice(i, 1); continue;
+            }
+          } else p.inZoneTimer = 0;
+        }
+      }
+    }
+
+    for (let i = explosions.length - 1; i >= 0; i--) {
+      const ex = explosions[i];
+      ex.t += dt;
+      if (ex.killsPlayer && !isDead && !infoOpen) {
+        const ddx = px - ex.x, ddy = py - ex.y;
+        const d = Math.sqrt(ddx*ddx + ddy*ddy);
+        if (d < ex.lethalRadius) {
+          isDead = true;
+          enemies.length = 0; triangles.length = 0; planes.length = 0;
+        }
+      }
+      if (ex.t >= ex.duration) explosions.splice(i, 1);
+    }
+    for (let i = skidMarks.length - 1; i >= 0; i--) {
+      const s = skidMarks[i];
+      s.t += dt;
+      if (s.t >= s.life) skidMarks.splice(i, 1);
+    }
+
+    if (isDead && !scoreSavedThisLife) {
+      if (nickname && score > 0) saveScoreToLeaderboard(nickname, score, difficulty);
+      const earned = Math.floor(score / 100);
+      if (earned > 0) {
+        coins += earned;
+        coinsEarnedThisLife = earned;
+        scheduleProfileSave();
+      }
+      scoreSavedThisLife = true;
+    }
+
+    ctx.fillStyle = "rgb(10, 15, 40)";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    if (controlMode === "mouse" && !isDead) {
+      ctx.beginPath(); ctx.arc(mouseX, mouseY, 6, 0, Math.PI*2);
+      ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(120, 200, 255, 0.7)"; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(mouseX - 10, mouseY); ctx.lineTo(mouseX - 3, mouseY);
+      ctx.moveTo(mouseX + 3, mouseY); ctx.lineTo(mouseX + 10, mouseY);
+      ctx.moveTo(mouseX, mouseY - 10); ctx.lineTo(mouseX, mouseY - 3);
+      ctx.moveTo(mouseX, mouseY + 3); ctx.lineTo(mouseX, mouseY + 10);
+      ctx.strokeStyle = "rgba(120, 200, 255, 0.5)"; ctx.stroke();
+    }
+    for (const s of skidMarks) {
+      const p = s.t / s.life;
+      const a = (1 - p) * 0.55 * s.intensity;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 2.5 + p * 2, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255, 130, 50, " + a + ")"; ctx.fill();
+    }
+    for (const e of enemies) {
+      if (e.state === "warning") {
+        const tt = e.warningTimer / WARNING_TIME;
+        const pulse = 0.5 + 0.5 * Math.sin(e.warningTimer * 30);
+        const rr = ENEMY_RADIUS + (1 - tt) * 14;
+        ctx.beginPath(); ctx.arc(e.x, e.y, rr, 0, Math.PI*2);
+        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(250, 220, 60, " + (0.4 + 0.4*pulse) + ")"; ctx.stroke();
+        ctx.beginPath(); ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(250, 220, 60, " + (0.35 + 0.3*pulse) + ")"; ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI*2);
+        ctx.fillStyle = "rgb(250, 220, 60)"; ctx.fill();
+      }
+    }
+    for (const t of triangles) {
+      if (t.state === "warning") {
+        const tt = t.warningTimer / TRIANGLE_WARNING_TIME;
+        const pulse = 0.5 + 0.5 * Math.sin(t.warningTimer * 30);
+        const rr = TRIANGLE_SIZE + (1 - tt) * 14;
+        ctx.beginPath(); ctx.arc(t.x, t.y, rr, 0, Math.PI*2);
+        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 140, 40, " + (0.4 + 0.4*pulse) + ")"; ctx.stroke();
+        ctx.globalAlpha = 0.35 + 0.3*pulse;
+        drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
+      const ll = 1 - t.age / TRIANGLE_LIFETIME;
+      const br = 6 + (1 - ll) * 20;
+      const ba = 0.4 + 0.6 * Math.abs(Math.sin(t.age * br));
+      ctx.beginPath(); ctx.arc(t.x, t.y, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255, 255, 200, " + ba + ")"; ctx.fill();
+    }
+    for (const p of planes) {
+      drawPlane(p.x, p.y, p.angle, "rgb(240, 240, 250)");
+      if (p.inZoneTimer > 0) {
+        const pr = p.inZoneTimer / PLANE_DANGER_DELAY;
+        const rr = PLANE_SIZE + (PLANE_EXPLOSION_RADIUS - PLANE_SIZE) * (1 - pr);
+        ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(255, 60, 30, 0.08)"; ctx.fill();
+        const pulse = 0.65 + 0.35 * Math.sin(now / 60);
+        ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI*2);
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255, 100, 50, " + pulse + ")"; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI*2);
+        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 80, 40, " + pulse + ")"; ctx.stroke();
+      } else {
+        const pulse = 0.4 + 0.3 * Math.sin(now / 100 + p.x);
+        ctx.beginPath(); ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI*2);
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(220, 220, 255, " + pulse + ")"; ctx.stroke();
+      }
+    }
+    for (const ex of explosions) {
+      const pr = ex.t / ex.duration;
+      const rad = 8 + pr * (ex.maxRadius - 8);
+      const a = 1 - pr;
+      if (ex.killsPlayer) {
+        ctx.beginPath(); ctx.arc(ex.x, ex.y, rad, 0, Math.PI*2);
+        ctx.lineWidth = 3 * (1 - pr) + 1.5; ctx.strokeStyle = "rgba(255, 200, 100, " + a + ")"; ctx.stroke();
+        const la = Math.max(0, 1 - pr * 1.6);
+        ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(255, 80, 40, " + (la * 0.45) + ")"; ctx.fill();
+        ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI*2);
+        ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255, 120, 60, " + (la * 0.9) + ")"; ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(ex.x, ex.y, rad, 0, Math.PI*2);
+        ctx.lineWidth = 3 * (1 - pr) + 1; ctx.strokeStyle = "rgba(255, 170, 60, " + a + ")"; ctx.stroke();
+        ctx.beginPath(); ctx.arc(ex.x, ex.y, rad * 0.6, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(255, 220, 120, " + (a * 0.6) + ")"; ctx.fill();
+      }
+    }
+    if (!isDead) {
+      const sc = getSkinColors();
+      const grad = ctx.createRadialGradient(
+        px - BALL_RADIUS * 0.3, py - BALL_RADIUS * 0.3, BALL_RADIUS * 0.15,
+        px, py, BALL_RADIUS);
+      grad.addColorStop(0, sc.light);
+      grad.addColorStop(0.5, sc.base);
+      grad.addColorStop(1, sc.dark);
+      ctx.beginPath(); ctx.arc(px, py, BALL_RADIUS, 0, Math.PI*2);
+      ctx.fillStyle = grad; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = sc.outline; ctx.stroke();
+    }
+    if (controlMode === "touch" && !isDead) drawJoystick();
+
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "bold 28px sans-serif";
+    ctx.fillText("Счёт: " + score, 16, 16);
+    ctx.fillStyle = "rgb(160, 200, 240)"; ctx.font = "18px sans-serif";
+    ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
+    ctx.fillStyle = DIFF_COLORS[difficulty]; ctx.font = "bold 16px sans-serif";
+    ctx.fillText("Сложность: " + DIFF_NAMES[difficulty], 16, 78);
+    drawCoinIcon(26, 108, 11);
+    ctx.fillStyle = "rgb(255, 220, 100)"; ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(String(coins), 44, 109);
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+
+    if (nickname) {
+      ctx.fillStyle = "rgba(160, 200, 240, 0.8)"; ctx.font = "15px sans-serif";
+      ctx.fillText("Игрок: " + nickname, 16, 128);
+    }
+    ctx.fillStyle = "rgb(120, 150, 190)"; ctx.font = "14px sans-serif";
+    ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 152);
+    ctx.fillText("Треугольников: " + triangles.length, 16, 172);
+    ctx.fillText("Ракет: " + planes.length, 16, 190);
+    ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 14px sans-serif";
+    if (mobileDevice) ctx.fillText("Кнопка «Сброс» — очищает поле", 16, 214);
+    else ctx.fillText("R — сброс · Esc — меню", 16, 214);
+
+    drawCtrlButton(now);
+    drawHomeBtn(now);
+    drawMenuBtnGame(now);
+    drawInfoButton(now);
+
+    if (isDead && !infoOpen) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgb(255, 80, 80)"; ctx.font = "bold 64px sans-serif";
+      ctx.fillText("GAME OVER", WIDTH/2, HEIGHT/2 - 130);
+      ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "32px sans-serif";
+      ctx.fillText("Твой счёт: " + score, WIDTH/2, HEIGHT/2 - 50);
+      ctx.fillStyle = "rgb(180, 220, 255)"; ctx.font = "26px sans-serif";
+      ctx.fillText("Лучший счёт (" + DIFF_NAMES[difficulty] + "): " + bestScore, WIDTH/2, HEIGHT/2 - 5);
+      if (coinsEarnedThisLife > 0) {
+        drawCoinIcon(WIDTH/2 - 50, HEIGHT/2 + 55, 16);
+        ctx.fillStyle = "rgb(255, 240, 170)"; ctx.font = "bold 26px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("+" + coinsEarnedThisLife, WIDTH/2 - 24, HEIGHT/2 + 56);
+        ctx.textAlign = "center";
+      }
+      if (score >= bestScore && score > 0) {
+        ctx.fillStyle = "rgb(255, 220, 80)"; ctx.font = "bold 22px sans-serif";
+        ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH/2, HEIGHT/2 + 105);
+      }
+      ctx.fillStyle = "rgb(200, 200, 220)"; ctx.font = "22px sans-serif";
+      if (mobileDevice) ctx.fillText("Нажми «Сброс» чтобы продолжить", WIDTH/2, HEIGHT/2 + 155);
+      else ctx.fillText("R — заново · Esc — меню", WIDTH/2, HEIGHT/2 + 155);
+    }
+    if (infoOpen) drawInfoOverlay();
+  } else {
+    ctx.fillStyle = "rgb(10, 15, 40)";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    drawMenuScreen(now);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ
+// ============================================================
+async function initGame() {
+  try {
+    // ВАЖНО: используем getSession() вместо getUser()
+    // getSession() читает токен из localStorage — работает мгновенно
+    // getUser() делает сетевой запрос — может упасть из-за плохой сети
+    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+
+    if (sessionError || !session || !session.user) {
+      console.warn("Нет сессии, редирект на хаб");
+      location.href = "index.html";
+      return;
+    }
+
+    currentUser = session.user;
+
+    // Загружаем профиль
+    const { data, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', currentUser.id)
+      .maybeSingle();
+
+    if (profileError) console.error("Ошибка загрузки профиля:", profileError);
+
+    if (!data) {
+      // Профиля нет — создаём с дефолтными данными
+      const nick = currentUser.user_metadata?.nickname || 'Игрок';
+      const { data: created, error: insertError } = await supabaseClient
+        .from('profiles')
+        .insert([{ id: currentUser.id, nickname: nick }])
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Ошибка создания профиля:", insertError);
+        // Продолжаем с дефолтными значениями, но не блокируем игру
+        nickname = nick;
+        coins = 0;
+        ownedSkins = [0];
+        selectedSkin = 0;
+        bestScores = { easy: 0, medium: 0, hard: 0 };
+      } else {
+        profile = created;
+      }
+    } else {
+      profile = data;
+    }
+
+    // Применяем загруженный профиль
+    if (profile) {
+      nickname = profile.nickname || "Игрок";
+      coins = Number(profile.coins) || 0;
+      ownedSkins = Array.isArray(profile.owned_skins) ? profile.owned_skins.slice() : [0];
+      if (!ownedSkins.includes(0)) ownedSkins.unshift(0);
+      selectedSkin = Number(profile.selected_skin) || 0;
+      if (!ownedSkins.includes(selectedSkin)) selectedSkin = 0;
+      bestScores = {
+        easy: Number(profile.best_easy) || 0,
+        medium: Number(profile.best_medium) || 0,
+        hard: Number(profile.best_hard) || 0
+      };
+    }
+
+    bestScore = bestScores[difficulty] || 0;
+    applyDifficulty();
+    softReset();
+    updateRestartBtnVisibility();
+    loadingOverlay.classList.add("hidden");
+    requestAnimationFrame(loop);
+  } catch (e) {
+    console.error("Ошибка инициализации:", e);
+    loadingOverlay.textContent = "Ошибка загрузки. Откройте хаб заново.";
+  }
+}
+
+initGame();
+</script>
+</body>
+</html>

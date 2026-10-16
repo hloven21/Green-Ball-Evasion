@@ -2,77 +2,237 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Green Ball Evasion.game</title>
-<meta name="description" content="A simple game in which you need to dodge enemies. Survive for as long as possible.">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Мои игры</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-html, body { margin: 0; padding: 0; background: #05050a; overflow: hidden; width: 100%; height: 100%; }
-body { display: flex; justify-content: center; align-items: center; height: 100vh; height: 100dvh; }
-canvas {
-  display: block; border: 2px solid #1a2a4a;
-  box-shadow: 0 0 40px rgba(30, 80, 180, 0.4);
-  max-width: 98vw; max-height: 98vh; max-height: 98dvh;
-  width: auto; height: auto; cursor: crosshair;
-  touch-action: none; user-select: none; -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #111; min-height: 100vh;
 }
-:fullscreen canvas, :-webkit-full-screen canvas {
-  border: none; box-shadow: none; max-width: 100vw; max-height: 100dvh;
+body::before {
+  content: ""; position: fixed; inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(0,0,0,0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0,0,0,0.035) 1px, transparent 1px);
+  background-size: 40px 40px; pointer-events: none; z-index: 0;
 }
-#restartBtn {
-  position: fixed; top: 16px; right: 16px; padding: 10px 18px;
-  background: #2a4a7a; color: #e0f0ff; border: 2px solid #4a80c0;
-  border-radius: 8px; font-family: sans-serif; font-size: 16px;
-  cursor: pointer; z-index: 10; user-select: none;
+.wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 60px 24px 80px; }
+header { text-align: center; margin-bottom: 56px; }
+header h1 { font-size: 42px; font-weight: 800; letter-spacing: -0.02em; }
+header p { margin-top: 10px; font-size: 16px; color: #777; }
+.games { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+.game-card {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 28px; border-radius: 20px; background: #fafafa;
+  border: 1.5px solid #eee; text-decoration: none; color: inherit;
+  transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
 }
-#restartBtn:hover { background: #3a6aaa; }
-@media (max-width: 900px) and (orientation: portrait) {
-  #restartBtn { top: auto; bottom: 16px; right: 16px;
-    font-size: 14px; padding: 10px 16px; opacity: 0.9;
-    background: rgba(40, 90, 160, 0.85); }
+.game-card:hover {
+  transform: translateY(-3px); border-color: #d5e5d8;
+  box-shadow: 0 12px 30px rgba(80,200,120,0.15);
 }
-#nickOverlay {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85);
-  display: none; justify-content: center; align-items: center;
-  z-index: 100; font-family: sans-serif; padding: 20px; box-sizing: border-box;
+.logo-ball {
+  width: 76px; height: 76px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #b8ffcc 0%, #50e678 45%, #1e8246 100%);
+  box-shadow: 0 6px 20px rgba(80,230,120,0.4),
+    inset -4px -6px 12px rgba(0,0,0,0.12),
+    inset 6px 6px 12px rgba(255,255,255,0.45);
+  position: relative; margin-bottom: 22px; flex-shrink: 0;
 }
-#nickOverlay.show { display: flex; }
-#nickBox {
-  background: #1a2a4a; border: 2px solid #4a80c0;
-  border-radius: 14px; padding: 26px; text-align: center;
-  width: min(92vw, 380px); box-sizing: border-box;
-  box-shadow: 0 0 40px rgba(60, 120, 220, 0.4);
+.logo-ball::after {
+  content: ""; position: absolute; top: 16%; left: 20%;
+  width: 26%; height: 22%; border-radius: 50%;
+  background: rgba(255,255,255,0.75); filter: blur(2px);
 }
-#nickTitle { color: #d0e5ff; font-size: 22px; font-weight: bold; margin-bottom: 6px; }
-#nickHint { color: #8aa8c8; font-size: 14px; margin-bottom: 18px; }
-#nickInput {
-  width: 100%; padding: 12px 14px; font-size: 18px;
-  border-radius: 10px; border: 2px solid #4a80c0;
-  background: #0a1020; color: #fff; box-sizing: border-box;
-  margin-bottom: 14px; outline: none; font-family: inherit;
+.logo-ball::before {
+  content: ""; position: absolute; inset: 6%; border-radius: 50%;
+  background:
+    linear-gradient(to bottom, transparent 48%, rgba(30,100,60,0.35) 49%, rgba(30,100,60,0.35) 51%, transparent 52%),
+    linear-gradient(to right, transparent 48%, rgba(30,100,60,0.35) 49%, rgba(30,100,60,0.35) 51%, transparent 52%);
+  opacity: 0.55;
 }
-#nickInput:focus { border-color: #78b0ff; box-shadow: 0 0 0 3px rgba(120, 176, 255, 0.2); }
-#nickBtn {
-  width: 100%; padding: 12px; background: #2a6aba; color: #fff;
-  border: none; border-radius: 10px; font-size: 18px;
-  font-weight: bold; cursor: pointer; font-family: inherit;
+.game-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.game-desc { font-size: 14px; color: #888; line-height: 1.5; }
+.badge {
+  display: inline-block; margin-top: 16px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 4px 10px; border-radius: 999px; background: #e8f6ec; color: #1e8246;
 }
-#nickBtn:hover { background: #3a80d0; }
-#nickBtn:active { background: #1e5090; }
+.game-card.soon { cursor: default; opacity: 0.55; border-style: dashed; }
+.game-card.soon:hover { transform: none; box-shadow: none; border-color: #eee; }
+.game-card.soon .logo-ball { background: linear-gradient(135deg, #ddd 0%, #bbb 100%); box-shadow: none; }
+.game-card.soon .logo-ball::after,
+.game-card.soon .logo-ball::before { display: none; }
+.game-card.soon .badge { background: #eee; color: #999; }
+footer { margin-top: 80px; text-align: center; font-size: 13px; color: #bbb; }
+
+/* Шапка с профилем */
+.user-bar {
+  position: absolute; top: 24px; right: 24px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; border-radius: 999px;
+  background: #f4f8f5; border: 1.5px solid #e0eee4;
+  font-size: 14px; font-weight: 600;
+}
+.user-bar .dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #50e678; box-shadow: 0 0 8px rgba(80,230,120,0.6);
+}
+.user-bar .logout {
+  background: transparent; border: none; cursor: pointer;
+  font-size: 13px; color: #999; padding: 0 0 0 8px;
+  border-left: 1px solid #ddd; margin-left: 4px;
+  font-family: inherit;
+}
+.user-bar .logout:hover { color: #d32f2f; }
+
+/* Экран авторизации */
+#authScreen {
+  position: fixed; inset: 0; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 20px;
+}
+#authScreen.hidden { display: none; }
+#authBox {
+  width: 100%; max-width: 400px;
+  padding: 40px 32px;
+  border-radius: 24px;
+  background: #fafafa; border: 1.5px solid #eee;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.06);
+}
+#authBox h2 {
+  font-size: 28px; font-weight: 800; margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+#authBox .sub {
+  font-size: 14px; color: #888; margin-bottom: 28px;
+}
+#authTabs {
+  display: flex; gap: 4px; padding: 4px; border-radius: 12px;
+  background: #eee; margin-bottom: 24px;
+}
+#authTabs button {
+  flex: 1; padding: 10px; border: none; background: transparent;
+  border-radius: 9px; font-family: inherit; font-size: 14px;
+  font-weight: 600; cursor: pointer; color: #777;
+  transition: background 0.15s, color 0.15s;
+}
+#authTabs button.active {
+  background: #fff; color: #1e8246;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.field {
+  margin-bottom: 16px;
+}
+.field label {
+  display: block; font-size: 13px; font-weight: 600;
+  color: #555; margin-bottom: 6px;
+}
+.field input {
+  width: 100%; padding: 12px 14px; font-size: 15px;
+  border-radius: 10px; border: 1.5px solid #ddd;
+  background: #fff; outline: none;
+  font-family: inherit; transition: border-color 0.15s;
+}
+.field input:focus {
+  border-color: #50e678;
+  box-shadow: 0 0 0 3px rgba(80,230,120,0.15);
+}
+.btn-main {
+  width: 100%; padding: 14px; margin-top: 8px;
+  background: #1e8246; color: #fff;
+  border: none; border-radius: 10px;
+  font-size: 16px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+.btn-main:hover { background: #176a38; }
+.btn-main:disabled { opacity: 0.6; cursor: default; }
+#authError {
+  margin-top: 14px; font-size: 13px; color: #d32f2f;
+  min-height: 18px; text-align: center;
+}
+#authSuccess {
+  margin-top: 14px; font-size: 13px; color: #1e8246;
+  min-height: 18px; text-align: center;
+}
 </style>
 </head>
 <body>
-<button id="restartBtn" style="display: none;">↻ Полная перезагрузка</button>
-<canvas id="game"></canvas>
 
-<div id="nickOverlay">
-  <div id="nickBox">
-    <div id="nickTitle">Введи свой ник</div>
-    <div id="nickHint">Он будет виден в таблице лидеров</div>
-    <input id="nickInput" maxlength="16" placeholder="до 16 символов" autocomplete="off">
-    <button id="nickBtn">OK</button>
+<!-- Экран авторизации -->
+<div id="authScreen">
+  <div id="authBox">
+    <h2>Добро пожаловать</h2>
+    <p class="sub">Войди или создай аккаунт, чтобы сохранять рекорды, монеты и скины</p>
+
+    <div id="authTabs">
+      <button id="tabLogin" class="active">Вход</button>
+      <button id="tabRegister">Регистрация</button>
+    </div>
+
+    <div class="field">
+      <label>Ник</label>
+      <input id="authNick" maxlength="16" placeholder="до 16 символов" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label>Пароль</label>
+      <input id="authPass" type="password" placeholder="минимум 6 символов" autocomplete="off">
+    </div>
+
+    <div class="field" id="pass2Field" style="display: none;">
+      <label>Повтори пароль</label>
+      <input id="authPass2" type="password" placeholder="ещё раз" autocomplete="off">
+    </div>
+
+    <button class="btn-main" id="authSubmit">Войти</button>
+    <div id="authError"></div>
+    <div id="authSuccess"></div>
   </div>
+</div>
+
+<!-- Основная страница -->
+<div class="wrap">
+  <div class="user-bar" id="userBar" style="display: none;">
+    <span class="dot"></span>
+    <span id="userNick"></span>
+    <button class="logout" id="logoutBtn">Выйти</button>
+  </div>
+
+  <header>
+    <h1>Мои игры</h1>
+    <p>Небольшая коллекция браузерных игр</p>
+  </header>
+
+  <div class="games">
+    <a class="game-card" href="greenball.html">
+      <div class="logo-ball"></div>
+      <div class="game-title">Зелёный шар</div>
+      <div class="game-desc">
+        Уворачивайся от жёлтых снарядов, оранжевых преследователей
+        и белых ракет. Открывай скины, собирай монеты, ставь рекорды.
+      </div>
+      <span class="badge">Играть</span>
+    </a>
+    <div class="game-card soon">
+      <div class="logo-ball"></div>
+      <div class="game-title">Скоро…</div>
+      <div class="game-desc">Здесь появится новая игра.</div>
+      <span class="badge">В разработке</span>
+    </div>
+    <div class="game-card soon">
+      <div class="logo-ball"></div>
+      <div class="game-title">Скоро…</div>
+      <div class="game-desc">Место для будущего проекта.</div>
+      <span class="badge">В разработке</span>
+    </div>
+  </div>
+
+  <footer>© 2026 · Один разработчик, много идей</footer>
 </div>
 
 <script>
@@ -82,1676 +242,172 @@ canvas {
 const SUPABASE_URL = 'https://ggnydsebtekcveckoshr.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdnbnlkc2VidGVrY3ZlY2tvc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNzY2OTgsImV4cCI6MjEwNzY1MjY5OH0.kWoEC6FCr8DF5ASyCcng6QV-MUkn4ai7uW0Ek4rxZ4A';
 
-let supabaseClient = null;
-try {
-  if (window.supabase) {
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// ЭЛЕМЕНТЫ
+// ============================================================
+const authScreen = document.getElementById('authScreen');
+const authNick = document.getElementById('authNick');
+const authPass = document.getElementById('authPass');
+const authPass2 = document.getElementById('authPass2');
+const pass2Field = document.getElementById('pass2Field');
+const authSubmit = document.getElementById('authSubmit');
+const authError = document.getElementById('authError');
+const authSuccess = document.getElementById('authSuccess');
+const tabLogin = document.getElementById('tabLogin');
+const tabRegister = document.getElementById('tabRegister');
+const userBar = document.getElementById('userBar');
+const userNick = document.getElementById('userNick');
+const logoutBtn = document.getElementById('logoutBtn');
+
+let authMode = 'login'; // 'login' | 'register'
+
+// ============================================================
+// ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
+// ============================================================
+tabLogin.addEventListener('click', () => setMode('login'));
+tabRegister.addEventListener('click', () => setMode('register'));
+
+function setMode(mode) {
+  authMode = mode;
+  authError.textContent = '';
+  authSuccess.textContent = '';
+  if (mode === 'login') {
+    tabLogin.classList.add('active');
+    tabRegister.classList.remove('active');
+    pass2Field.style.display = 'none';
+    authSubmit.textContent = 'Войти';
+  } else {
+    tabRegister.classList.add('active');
+    tabLogin.classList.remove('active');
+    pass2Field.style.display = 'block';
+    authSubmit.textContent = 'Создать аккаунт';
   }
-} catch (e) { console.error('Supabase:', e); }
-
-// ============================================================
-// НИК
-// ============================================================
-const nickOverlay = document.getElementById("nickOverlay");
-const nickInput = document.getElementById("nickInput");
-const nickBtn = document.getElementById("nickBtn");
-let nickname = localStorage.getItem("nickname") || "";
-let pendingAfterNick = null;
-
-function showNickInput(callback) {
-  pendingAfterNick = callback || null;
-  nickInput.value = nickname;
-  nickOverlay.classList.add("show");
-  setTimeout(() => { try { nickInput.focus(); } catch (e) {} }, 50);
 }
-function hideNickInput() { nickOverlay.classList.remove("show"); }
-function submitNick() {
-  const v = (nickInput.value || "").trim().slice(0, 16);
-  if (!v) {
-    nickInput.style.borderColor = "#ff6a6a";
-    setTimeout(() => { nickInput.style.borderColor = ""; }, 400);
+
+// ============================================================
+// ОТПРАВКА ФОРМЫ
+// ============================================================
+authSubmit.addEventListener('click', handleAuth);
+authPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleAuth(); });
+authPass2.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleAuth(); });
+
+async function handleAuth() {
+  authError.textContent = '';
+  authSuccess.textContent = '';
+
+  const nick = (authNick.value || '').trim();
+  const pass = authPass.value || '';
+  const pass2 = authPass2.value || '';
+
+  // Валидация
+  if (nick.length < 2) { authError.textContent = 'Ник — минимум 2 символа'; return; }
+  if (nick.length > 16) { authError.textContent = 'Ник — максимум 16 символов'; return; }
+  if (!/^[a-zA-Zа-яА-Я0-9_]+$/.test(nick)) {
+    authError.textContent = 'Ник: только буквы, цифры и _';
     return;
   }
-  nickname = v;
-  localStorage.setItem("nickname", nickname);
-  hideNickInput();
-  const cb = pendingAfterNick;
-  pendingAfterNick = null;
-  if (cb) cb();
-}
-nickBtn.addEventListener("click", submitNick);
-nickInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); submitNick(); }
-});
+  if (pass.length < 6) { authError.textContent = 'Пароль — минимум 6 символов'; return; }
+  if (authMode === 'register' && pass !== pass2) {
+    authError.textContent = 'Пароли не совпадают';
+    return;
+  }
 
-// ============================================================
-// МОНЕТЫ
-// ============================================================
-let coins = Number(localStorage.getItem("coins") || 0);
-function saveCoins() { localStorage.setItem("coins", String(coins)); }
+  authSubmit.disabled = true;
+  const oldText = authSubmit.textContent;
+  authSubmit.textContent = '...';
 
-// ============================================================
-// СКИНЫ
-// ============================================================
-const SKINS = [
-  { name: "Зелёный",    rgb: [80, 230, 120],  cost: 0  },
-  { name: "Красный",    rgb: [230, 60, 60],   cost: 10 },
-  { name: "Оранжевый",  rgb: [240, 140, 40],  cost: 10 },
-  { name: "Жёлтый",     rgb: [240, 220, 60],  cost: 10 },
-  { name: "Лаймовый",   rgb: [200, 240, 80],  cost: 10 },
-  { name: "Мятный",     rgb: [140, 240, 140], cost: 10 },
-  { name: "Изумруд",    rgb: [60, 220, 170],  cost: 10 },
-  { name: "Бирюзовый",  rgb: [60, 200, 220],  cost: 10 },
-  { name: "Голубой",    rgb: [70, 170, 240],  cost: 10 },
-  { name: "Синий",      rgb: [70, 120, 230],  cost: 10 },
-  { name: "Индиго",     rgb: [100, 90, 220],  cost: 10 },
-  { name: "Фиолетовый", rgb: [150, 80, 220],  cost: 10 },
-  { name: "Пурпурный",  rgb: [200, 80, 200],  cost: 10 },
-  { name: "Магента",    rgb: [230, 70, 160],  cost: 10 },
-  { name: "Розовый",    rgb: [240, 100, 130], cost: 10 },
-  { name: "Коралловый", rgb: [240, 120, 100], cost: 10 }
-];
+  // Служебный email на основе ника
+  const email = nick.toLowerCase() + '@game.local';
 
-let ownedSkins = (() => {
   try {
-    const arr = JSON.parse(localStorage.getItem("ownedSkins") || "[0]");
-    if (!Array.isArray(arr) || arr.length === 0) return [0];
-    if (!arr.includes(0)) arr.unshift(0);
-    return arr;
-  } catch (e) { return [0]; }
-})();
-
-let selectedSkin = Number(localStorage.getItem("selectedSkin") || 0);
-if (selectedSkin < 0 || selectedSkin >= SKINS.length) selectedSkin = 0;
-if (!ownedSkins.includes(selectedSkin)) selectedSkin = 0;
-
-function saveSkinsState() {
-  localStorage.setItem("ownedSkins", JSON.stringify(ownedSkins));
-  localStorage.setItem("selectedSkin", String(selectedSkin));
-}
-
-function getSkinColors() {
-  const skin = SKINS[selectedSkin] || SKINS[0];
-  const [r, g, b] = skin.rgb;
-  return {
-    light:   "rgb(" + Math.min(255, r + 80) + ", " + Math.min(255, g + 80) + ", " + Math.min(255, b + 80) + ")",
-    base:    "rgb(" + r + ", " + g + ", " + b + ")",
-    dark:    "rgb(" + Math.max(0, r - 60) + ", " + Math.max(0, g - 60) + ", " + Math.max(0, b - 60) + ")",
-    outline: "rgb(" + Math.min(255, r + 100) + ", " + Math.min(255, g + 100) + ", " + Math.min(255, b + 100) + ")",
-    rgb: [r, g, b]
-  };
-}
-
-// ============================================================
-// ЛИДЕРБОРД
-// ============================================================
-let leaderboardCache = null;
-let leaderboardCacheTime = 0;
-const LEADERBOARD_CACHE_MS = 5000;
-
-async function loadLeaderboard(forceRefresh) {
-  if (!supabaseClient) return [];
-  const now = Date.now();
-  if (!forceRefresh && leaderboardCache && (now - leaderboardCacheTime) < LEADERBOARD_CACHE_MS) {
-    return leaderboardCache;
-  }
-  try {
-    const { data, error } = await supabaseClient
-      .from('leaderboard')
-      .select('nickname, score, difficulty, created_at')
-      .order('score', { ascending: false })
-      .limit(50);
-    if (error) throw error;
-    leaderboardCache = (data || []).map(row => ({
-      nick: row.nickname, score: row.score,
-      difficulty: row.difficulty, date: row.created_at
-    }));
-    leaderboardCacheTime = now;
-    return leaderboardCache;
-  } catch (e) {
-    console.error("Ошибка загрузки лидерборда:", e);
-    return leaderboardCache || [];
-  }
-}
-
-async function saveScoreToSupabase(nick, score, difficulty) {
-  if (!supabaseClient || !nick || score <= 0) return;
-  try {
-    const { data: existing, error: selectError } = await supabaseClient
-      .from('leaderboard')
-      .select('id, score')
-      .eq('nickname', nick)
-      .order('score', { ascending: false })
-      .limit(1);
-    if (selectError) throw selectError;
-
-    if (!existing || existing.length === 0) {
-      const { error } = await supabaseClient
-        .from('leaderboard')
-        .insert([{ nickname: nick, score: score, difficulty: difficulty }]);
-      if (error) throw error;
-    } else if (score > existing[0].score) {
-      const { error } = await supabaseClient
-        .from('leaderboard')
-        .update({ score: score, difficulty: difficulty })
-        .eq('id', existing[0].id);
-      if (error) throw error;
-    }
-    leaderboardCache = null;
-  } catch (e) { console.error("Ошибка сохранения счёта:", e); }
-}
-
-// ============================================================
-// ИГРА
-// ============================================================
-const uaIsMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
-const hasTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
-const isSmallScreen = window.innerWidth < 900;
-const mobileDevice = uaIsMobile || (hasTouch && isSmallScreen);
-
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-
-let WIDTH, HEIGHT;
-if (mobileDevice) { WIDTH = 800; HEIGHT = 1200; }
-else { WIDTH = 1200; HEIGHT = 800; }
-canvas.width = WIDTH;
-canvas.height = HEIGHT;
-canvas.style.aspectRatio = WIDTH + " / " + HEIGHT;
-
-const DIFFICULTIES = ["easy", "medium", "hard"];
-const DIFF_NAMES = { easy: "Лёгкая", medium: "Средняя", hard: "Сложная" };
-const DIFF_COLORS = {
-  easy: "rgb(140, 230, 150)", medium: "rgb(250, 220, 100)",
-  hard: "rgb(255, 130, 110)"
-};
-const DIFF_MULT = { easy: 2/3, medium: 1, hard: 1.5 };
-
-let difficulty = localStorage.getItem("difficulty") || "medium";
-if (!DIFFICULTIES.includes(difficulty)) difficulty = "medium";
-function bestScoreKey(d) { return "bestScore_" + d; }
-let bestScore = Number(localStorage.getItem(bestScoreKey(difficulty)) || 0);
-
-const SPEED = 320;
-const BALL_RADIUS = 18;
-const ENEMY_RADIUS = BALL_RADIUS / 2;
-const WARNING_TIME = 1.0;
-
-const SPAWN_INTERVAL_INIT = 1.2;
-let SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
-const SPAWN_MIN = 0.3;
-const SPEEDUP_EVERY = 5;
-const SPEEDUP_FACTOR = 0.85;
-
-const TRIANGLE_SIZE = 14;
-const TRIANGLE_LIFETIME = 6.0;
-const TRIANGLE_SPAWN_INTERVAL = 2.5;
-const TRIANGLE_WARNING_TIME = 1.0;
-const TRIANGLE_TURN_RATE = 3.0;
-const TRIANGLE_GRIP = 2.2;
-const DRIFT_THRESHOLD = 0.35;
-const TRIANGLE_COLOR = "rgb(255, 120, 0)";
-
-const PLANE_SIZE = 16;
-const PLANE_SPAWN_INTERVAL = 1.75;
-const PLANE_EXPLOSION_RADIUS = BALL_RADIUS * 6;
-const PLANE_DANGER_DELAY = 0.20;
-const PLANE_MAX_PATH = 1600;
-
-let ENEMY_SPEED = 320;
-let TRIANGLE_SPEED = 210;
-let PLANE_SPEED = 210;
-
-function applyDifficulty() {
-  const m = DIFF_MULT[difficulty];
-  ENEMY_SPEED = 320 * m;
-  TRIANGLE_SPEED = 210 * m;
-  PLANE_SPEED = 210 * m;
-}
-applyDifficulty();
-
-const CONTROL_MODES = ["keyboard", "mouse", "touch"];
-let controlModeIndex = mobileDevice ? 2 : 0;
-let controlMode = CONTROL_MODES[controlModeIndex];
-
-let mouseX = WIDTH / 2;
-let mouseY = HEIGHT / 2;
-const MOUSE_DEADZONE = 4;
-
-const JOYSTICK_BASE_RADIUS = 120;
-const JOYSTICK_KNOB_RADIUS = 55;
-const JOYSTICK_MAX_DIST = JOYSTICK_BASE_RADIUS - 12;
-const JOYSTICK_MARGIN = 60;
-const JOYSTICK_GRAB_RADIUS = JOYSTICK_BASE_RADIUS * 1.4;
-const JOYSTICK_DEADZONE = 0.15;
-const JOYSTICK_ANALOG = false;
-const JOYSTICK_CX = JOYSTICK_MARGIN + JOYSTICK_BASE_RADIUS;
-const JOYSTICK_CY = HEIGHT - JOYSTICK_MARGIN - JOYSTICK_BASE_RADIUS;
-
-let joystickTouchId = null;
-let joystickMouseDown = false;
-let joystickKnobX = JOYSTICK_CX;
-let joystickKnobY = JOYSTICK_CY;
-let joystickDirX = 0;
-let joystickDirY = 0;
-let joystickMagnitude = 0;
-
-const CTRL_BTN_W = 280;
-const CTRL_BTN_H = 68;
-const CTRL_BTN_X = WIDTH - 16 - CTRL_BTN_W;
-const CTRL_BTN_Y = 16;
-let ctrlBtnPressed = false;
-
-const INFO_BTN_SIZE = 50;
-const INFO_BTN_X = WIDTH - 16 - INFO_BTN_SIZE;
-const INFO_BTN_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
-let infoBtnPressed = false;
-let infoOpen = false;
-let infoCloseBtnPressed = false;
-
-const MENU_BTN_SIZE = 50;
-const MENU_BTN_GAME_X = WIDTH - 16 - INFO_BTN_SIZE - 10 - MENU_BTN_SIZE;
-const MENU_BTN_GAME_Y = CTRL_BTN_Y + CTRL_BTN_H + 10;
-let menuBtnPressed = false;
-
-const INFO_PANEL_W = Math.min(WIDTH - 40, 700);
-const INFO_PANEL_H = Math.min(HEIGHT - 80, 760);
-const INFO_PANEL_X = (WIDTH - INFO_PANEL_W) / 2;
-const INFO_PANEL_Y = (HEIGHT - INFO_PANEL_H) / 2;
-
-const INFO_CLOSE_W = 200;
-const INFO_CLOSE_H = 54;
-const INFO_CLOSE_X = WIDTH / 2 - INFO_CLOSE_W / 2;
-const INFO_CLOSE_Y = INFO_PANEL_Y + INFO_PANEL_H - INFO_CLOSE_H - 24;
-
-const DIFF_PAD = 36;
-const DIFF_AVAIL_W = INFO_PANEL_W - DIFF_PAD * 2;
-const DIFF_BTN_GAP = 20;
-const DIFF_BTN_W = (DIFF_AVAIL_W - DIFF_BTN_GAP * 2) / 3;
-const DIFF_BTN_H = 54;
-const DIFF_SECTION_Y = INFO_PANEL_Y + 370;
-const DIFF_BTN_Y = DIFF_SECTION_Y + 32;
-const DIFF_BTN_X1 = INFO_PANEL_X + DIFF_PAD;
-const DIFF_BTN_X2 = DIFF_BTN_X1 + DIFF_BTN_W + DIFF_BTN_GAP;
-const DIFF_BTN_X3 = DIFF_BTN_X2 + DIFF_BTN_W + DIFF_BTN_GAP;
-
-// ===== СЕТКА СКИНОВ В МАГАЗИНЕ =====
-const SHOP_COLS = 4;
-const SHOP_RADIUS = 40;
-const SHOP_GAP = 18;
-const SHOP_CELL = SHOP_RADIUS * 2 + SHOP_GAP;
-const SHOP_GRID_W = SHOP_COLS * SHOP_CELL - SHOP_GAP;
-const SHOP_ROWS = Math.ceil(SKINS.length / SHOP_COLS);
-const SHOP_GRID_H = SHOP_ROWS * SHOP_CELL - SHOP_GAP;
-const SHOP_GRID_X = (WIDTH - SHOP_GRID_W) / 2;
-const SHOP_GRID_Y = HEIGHT * 0.30;
-
-function getSkinCellPos(index) {
-  const col = index % SHOP_COLS;
-  const row = Math.floor(index / SHOP_COLS);
-  return {
-    cx: SHOP_GRID_X + col * SHOP_CELL + SHOP_RADIUS,
-    cy: SHOP_GRID_Y + row * SHOP_CELL + SHOP_RADIUS
-  };
-}
-function getSkinAt(x, y) {
-  for (let i = 0; i < SKINS.length; i++) {
-    const p = getSkinCellPos(i);
-    const dx = x - p.cx, dy = y - p.cy;
-    if (dx * dx + dy * dy <= SHOP_RADIUS * SHOP_RADIUS) return i;
-  }
-  return -1;
-}
-function handleSkinClick(idx) {
-  if (idx < 0 || idx >= SKINS.length) return;
-  if (ownedSkins.includes(idx)) {
-    selectedSkin = idx;
-    saveSkinsState();
-  } else {
-    const cost = SKINS[idx].cost;
-    if (coins >= cost) {
-      coins -= cost;
-      ownedSkins.push(idx);
-      selectedSkin = idx;
-      saveCoins();
-      saveSkinsState();
-    }
-  }
-}
-
-function isOnInfoBtn(x, y) {
-  return x >= INFO_BTN_X && x <= INFO_BTN_X + INFO_BTN_SIZE &&
-         y >= INFO_BTN_Y && y <= INFO_BTN_Y + INFO_BTN_SIZE;
-}
-function isOnMenuBtnGame(x, y) {
-  return x >= MENU_BTN_GAME_X && x <= MENU_BTN_GAME_X + MENU_BTN_SIZE &&
-         y >= MENU_BTN_GAME_Y && y <= MENU_BTN_GAME_Y + MENU_BTN_SIZE;
-}
-function isOnInfoClose(x, y) {
-  return x >= INFO_CLOSE_X && x <= INFO_CLOSE_X + INFO_CLOSE_W &&
-         y >= INFO_CLOSE_Y && y <= INFO_CLOSE_Y + INFO_CLOSE_H;
-}
-function isOnInfoPanel(x, y) {
-  return x >= INFO_PANEL_X && x <= INFO_PANEL_X + INFO_PANEL_W &&
-         y >= INFO_PANEL_Y && y <= INFO_PANEL_Y + INFO_PANEL_H;
-}
-function isOnCtrlButton(x, y) {
-  return x >= CTRL_BTN_X && x <= CTRL_BTN_X + CTRL_BTN_W &&
-         y >= CTRL_BTN_Y && y <= CTRL_BTN_Y + CTRL_BTN_H;
-}
-function getDiffButtonAt(x, y) {
-  if (y < DIFF_BTN_Y || y > DIFF_BTN_Y + DIFF_BTN_H) return null;
-  if (x >= DIFF_BTN_X1 && x <= DIFF_BTN_X1 + DIFF_BTN_W) return "easy";
-  if (x >= DIFF_BTN_X2 && x <= DIFF_BTN_X2 + DIFF_BTN_W) return "medium";
-  if (x >= DIFF_BTN_X3 && x <= DIFF_BTN_X3 + DIFF_BTN_W) return "hard";
-  return null;
-}
-
-function cycleControlMode() {
-  controlModeIndex = (controlModeIndex + 1) % CONTROL_MODES.length;
-  controlMode = CONTROL_MODES[controlModeIndex];
-  if (controlMode !== "touch") {
-    joystickTouchId = null;
-    joystickMouseDown = false;
-    resetJoystick();
-  }
-}
-function getModeText() {
-  if (controlMode === "keyboard") return "WASD";
-  if (controlMode === "mouse") return "МЫШЬ";
-  return "ДЖОЙСТИК";
-}
-function getModeColor() {
-  if (controlMode === "keyboard") return "rgb(160, 220, 180)";
-  if (controlMode === "mouse") return "rgb(160, 200, 255)";
-  return "rgb(255, 200, 130)";
-}
-function isInJoystickZone(x, y) {
-  const dx = x - JOYSTICK_CX;
-  const dy = y - JOYSTICK_CY;
-  return (dx * dx + dy * dy) <= JOYSTICK_GRAB_RADIUS * JOYSTICK_GRAB_RADIUS;
-}
-function setJoystickFromPoint(x, y) {
-  const rawDx = x - JOYSTICK_CX;
-  const rawDy = y - JOYSTICK_CY;
-  const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
-  if (rawDist < 0.001) { resetJoystick(); return; }
-  const dirX = rawDx / rawDist;
-  const dirY = rawDy / rawDist;
-  const clampedDist = Math.min(rawDist, JOYSTICK_MAX_DIST);
-  joystickKnobX = JOYSTICK_CX + dirX * clampedDist;
-  joystickKnobY = JOYSTICK_CY + dirY * clampedDist;
-  joystickDirX = dirX;
-  joystickDirY = dirY;
-  joystickMagnitude = Math.min(1, rawDist / JOYSTICK_MAX_DIST);
-}
-function resetJoystick() {
-  joystickKnobX = JOYSTICK_CX;
-  joystickKnobY = JOYSTICK_CY;
-  joystickDirX = 0;
-  joystickDirY = 0;
-  joystickMagnitude = 0;
-}
-
-let fullscreenRequested = false;
-function enterFullscreenOnMobile() {
-  if (!mobileDevice || fullscreenRequested) return;
-  fullscreenRequested = true;
-  const el = document.documentElement;
-  const req = el.requestFullscreen || el.webkitRequestFullscreen ||
-              el.mozRequestFullScreen || el.msRequestFullscreen;
-  if (req) { try { const p = req.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
-  if (screen.orientation && screen.orientation.lock) {
-    try { const p = screen.orientation.lock("portrait"); if (p && p.catch) p.catch(() => {}); } catch (e) {}
-  }
-}
-
-let px = WIDTH / 2;
-let py = HEIGHT / 2;
-
-const keys = {};
-const enemies = [];
-const triangles = [];
-const planes = [];
-const explosions = [];
-const skidMarks = [];
-
-let spawnTimer = 0;
-let speedupTimer = 0;
-let triangleSpawnTimer = 0;
-let planeSpawnTimer = 0;
-let isDead = false;
-let scoreSavedThisLife = false;
-let coinsEarnedThisLife = 0;
-let score = 0;
-let scoreTimer = 0;
-const SCORE_PER_SECOND = 10;
-
-let menuState = "main";
-
-const MENU_BTN_W = Math.min(WIDTH - 80, 420);
-const MENU_BTN_H = 80;
-const MENU_BTN_GAP = 24;
-const MENU_BTN_X = (WIDTH - MENU_BTN_W) / 2;
-
-const restartBtn = document.getElementById("restartBtn");
-
-function updateRestartBtnVisibility() {
-  restartBtn.style.display = (menuState === "game") ? "" : "none";
-}
-function isInRect(x, y, r) {
-  return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-}
-
-function getMainMenuButtons() {
-  const top = HEIGHT * 0.33;
-  return [
-    { id: "play",    label: "Играть",          x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
-    { id: "shop",    label: "Магазин",         x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 1, w: MENU_BTN_W, h: MENU_BTN_H },
-    { id: "leaders", label: "Таблица лидеров", x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H }
-  ];
-}
-function getPlayMenuButtons() {
-  const top = HEIGHT * 0.38;
-  return [
-    { id: "endless", label: "Бесконечно", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: MENU_BTN_H },
-    { id: "levels",  label: "Уровни",     x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 1, w: MENU_BTN_W, h: MENU_BTN_H },
-    { id: "back",    label: "← Назад",    x: MENU_BTN_X, y: top + (MENU_BTN_H + MENU_BTN_GAP) * 2, w: MENU_BTN_W, h: MENU_BTN_H }
-  ];
-}
-function getLevelsMenuButtons() {
-  const top = HEIGHT * 0.30;
-  const btnH = 70;
-  const gap = 18;
-  return [
-    { id: "level_0", label: "1. Знакомство", x: MENU_BTN_X, y: top, w: MENU_BTN_W, h: btnH },
-    { id: "level_1", label: "2. Вверх",       x: MENU_BTN_X, y: top + (btnH + gap) * 1, w: MENU_BTN_W, h: btnH },
-    { id: "level_2", label: "3. Пропасть",    x: MENU_BTN_X, y: top + (btnH + gap) * 2, w: MENU_BTN_W, h: btnH },
-    { id: "back",    label: "← Назад",        x: MENU_BTN_X, y: HEIGHT * 0.82, w: MENU_BTN_W, h: 70 }
-  ];
-}
-function getLeaderboardButtons() {
-  return [{ id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.86, w: MENU_BTN_W, h: MENU_BTN_H }];
-}
-function getShopButtons() {
-  return [{ id: "back", label: "← Назад", x: MENU_BTN_X, y: HEIGHT * 0.92, w: MENU_BTN_W, h: 70 }];
-}
-function getActiveMenuButtons() {
-  if (menuState === "main") return getMainMenuButtons();
-  if (menuState === "play_menu") return getPlayMenuButtons();
-  if (menuState === "levels") return getLevelsMenuButtons();
-  if (menuState === "leaderboard") return getLeaderboardButtons();
-  if (menuState === "shop") return getShopButtons();
-  return [];
-}
-
-function dispatchMenuAction(id) {
-  if (id === "play") {
-    menuState = "play_menu";
-  } else if (id === "levels") {
-    menuState = "levels";
-  } else if (id.startsWith("level_")) {
-    const num = parseInt(id.replace("level_", ""), 10);
-    location.href = "parkour.html?level=" + num;
-  } else if (id === "shop") {
-    menuState = "shop";
-  } else if (id === "leaders") {
-    if (!nickname) {
-      showNickInput(() => { menuState = "leaderboard"; });
-    } else {
-      menuState = "leaderboard";
-    }
-    leaderboardCache = null;
-  } else if (id === "endless") {
-    softReset();
-    menuState = "game";
-    updateRestartBtnVisibility();
-  } else if (id === "back") {
-    menuState = "main";
-  }
-}
-function handleMenuClick(x, y) {
-  const buttons = getActiveMenuButtons();
-  for (const b of buttons) {
-    if (b.disabled) continue;
-    if (isInRect(x, y, b)) { dispatchMenuAction(b.id); return true; }
-  }
-  return false;
-}
-function goToMainMenu() {
-  menuState = "main";
-  infoOpen = false;
-  updateRestartBtnVisibility();
-}
-
-function softReset() {
-  enemies.length = 0; triangles.length = 0; planes.length = 0;
-  explosions.length = 0; skidMarks.length = 0;
-  px = WIDTH / 2; py = HEIGHT / 2;
-  spawnTimer = 0; speedupTimer = 0;
-  triangleSpawnTimer = 0; planeSpawnTimer = 0;
-  SPAWN_INTERVAL = SPAWN_INTERVAL_INIT;
-  score = 0; scoreTimer = 0;
-  isDead = false; scoreSavedThisLife = false;
-  coinsEarnedThisLife = 0;
-  joystickTouchId = null; joystickMouseDown = false;
-  resetJoystick();
-}
-function restartGame() { location.reload(); }
-
-function setDifficulty(newDiff) {
-  if (newDiff === difficulty) return;
-  difficulty = newDiff;
-  localStorage.setItem("difficulty", difficulty);
-  applyDifficulty();
-  bestScore = Number(localStorage.getItem(bestScoreKey(difficulty)) || 0);
-  score = 0;
-  softReset();
-}
-
-window.addEventListener("keydown", (e) => {
-  if (nickOverlay.classList.contains("show")) return;
-  const k = e.key.toLowerCase();
-  keys[k] = true;
-  if (k === "escape") {
-    if (infoOpen) { infoOpen = false; return; }
-    if (menuState === "game") { goToMainMenu(); return; }
-    if (menuState === "play_menu" || menuState === "leaderboard" ||
-        menuState === "shop" || menuState === "levels") {
-      menuState = "main"; return;
-    }
-    return;
-  }
-  if (menuState !== "game") return;
-  if (infoOpen) return;
-  if (k === "r" || k === "к") { softReset(); }
-  if (k === "q" || k === "й") { cycleControlMode(); }
-});
-window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
-
-function canvasCoords(clientX, clientY) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = WIDTH / rect.width;
-  const scaleY = HEIGHT / rect.height;
-  return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
-}
-function updateMouse(e) {
-  const p = canvasCoords(e.clientX, e.clientY);
-  mouseX = Math.max(0, Math.min(WIDTH, p.x));
-  mouseY = Math.max(0, Math.min(HEIGHT, p.y));
-}
-canvas.addEventListener("mousemove", updateMouse);
-
-canvas.addEventListener("mousedown", (e) => {
-  if (nickOverlay.classList.contains("show")) return;
-  updateMouse(e);
-  const p = canvasCoords(e.clientX, e.clientY);
-  if (menuState !== "game") {
-    if (menuState === "shop") {
-      const skinIdx = getSkinAt(p.x, p.y);
-      if (skinIdx >= 0) { handleSkinClick(skinIdx); return; }
-    }
-    handleMenuClick(p.x, p.y);
-    return;
-  }
-  if (infoOpen) {
-    if (isOnInfoClose(p.x, p.y)) { infoCloseBtnPressed = true; return; }
-    const diff = getDiffButtonAt(p.x, p.y);
-    if (diff) { setDifficulty(diff); return; }
-    if (!isOnInfoPanel(p.x, p.y)) { infoOpen = false; }
-    return;
-  }
-  if (isOnCtrlButton(p.x, p.y)) { ctrlBtnPressed = true; return; }
-  if (isOnInfoBtn(p.x, p.y)) { infoBtnPressed = true; return; }
-  if (isOnMenuBtnGame(p.x, p.y)) { menuBtnPressed = true; return; }
-  if (controlMode === "touch" && isInJoystickZone(p.x, p.y)) {
-    joystickMouseDown = true;
-    setJoystickFromPoint(p.x, p.y);
-  }
-});
-canvas.addEventListener("mousemove", (e) => {
-  if (menuState !== "game") return;
-  if (infoOpen) return;
-  if (!joystickMouseDown) return;
-  const p = canvasCoords(e.clientX, e.clientY);
-  setJoystickFromPoint(p.x, p.y);
-});
-window.addEventListener("mouseup", () => {
-  if (infoCloseBtnPressed) { infoCloseBtnPressed = false; infoOpen = false; return; }
-  if (infoBtnPressed) { infoBtnPressed = false; infoOpen = true; return; }
-  if (menuBtnPressed) { menuBtnPressed = false; goToMainMenu(); return; }
-  if (ctrlBtnPressed) { ctrlBtnPressed = false; cycleControlMode(); return; }
-  if (joystickMouseDown) { joystickMouseDown = false; resetJoystick(); }
-});
-
-function touchToCanvas(touch) { return canvasCoords(touch.clientX, touch.clientY); }
-
-canvas.addEventListener("touchstart", (e) => {
-  if (nickOverlay.classList.contains("show")) return;
-  enterFullscreenOnMobile();
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    const pos = touchToCanvas(t);
-    if (menuState !== "game") {
-      if (menuState === "shop") {
-        const skinIdx = getSkinAt(pos.x, pos.y);
-        if (skinIdx >= 0) { handleSkinClick(skinIdx); continue; }
-      }
-      handleMenuClick(pos.x, pos.y);
-      continue;
-    }
-    if (infoOpen) {
-      if (isOnInfoClose(pos.x, pos.y)) { infoOpen = false; continue; }
-      const diff = getDiffButtonAt(pos.x, pos.y);
-      if (diff) { setDifficulty(diff); continue; }
-      if (!isOnInfoPanel(pos.x, pos.y)) { infoOpen = false; }
-      continue;
-    }
-    if (isOnMenuBtnGame(pos.x, pos.y)) { goToMainMenu(); continue; }
-    if (isOnInfoBtn(pos.x, pos.y)) { infoOpen = true; continue; }
-    if (isOnCtrlButton(pos.x, pos.y)) { cycleControlMode(); continue; }
-    if (controlMode === "touch" && joystickTouchId === null && isInJoystickZone(pos.x, pos.y)) {
-      joystickTouchId = t.identifier;
-      setJoystickFromPoint(pos.x, pos.y);
-    }
-  }
-}, { passive: false });
-
-canvas.addEventListener("touchmove", (e) => {
-  if (nickOverlay.classList.contains("show")) return;
-  e.preventDefault();
-  if (menuState !== "game") return;
-  if (infoOpen) return;
-  for (const t of e.changedTouches) {
-    if (t.identifier === joystickTouchId) {
-      const pos = touchToCanvas(t);
-      setJoystickFromPoint(pos.x, pos.y);
-    }
-  }
-}, { passive: false });
-
-canvas.addEventListener("touchend", (e) => {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    if (t.identifier === joystickTouchId) { joystickTouchId = null; resetJoystick(); }
-  }
-}, { passive: false });
-
-canvas.addEventListener("touchcancel", (e) => {
-  for (const t of e.changedTouches) {
-    if (t.identifier === joystickTouchId) { joystickTouchId = null; resetJoystick(); }
-  }
-});
-
-if (mobileDevice) {
-  restartBtn.textContent = "↻ Сброс";
-  restartBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (infoOpen) { infoOpen = false; return; }
-    softReset();
-  });
-  restartBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); }, { passive: true });
-} else {
-  restartBtn.textContent = "↻ Полная перезагрузка";
-  restartBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (infoOpen) { infoOpen = false; return; }
-    restartGame();
-  });
-}
-
-// ============================================================
-// РИСОВАНИЕ
-// ============================================================
-function drawTriangle(x, y, angle, fillStyle) {
-  const r = TRIANGLE_SIZE;
-  const h = r * Math.sqrt(3) / 2;
-  ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-  ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r / 2, -h); ctx.lineTo(-r / 2, h);
-  ctx.closePath(); ctx.fillStyle = fillStyle; ctx.fill(); ctx.restore();
-}
-function drawPlane(x, y, angle, fillStyle) {
-  const s = PLANE_SIZE;
-  ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-  ctx.beginPath();
-  ctx.moveTo(s, 0);
-  ctx.lineTo(-s * 0.3, -s * 0.25); ctx.lineTo(-s * 0.3, -s * 0.9);
-  ctx.lineTo(-s * 0.7, -s * 0.9); ctx.lineTo(-s * 0.7, -s * 0.25);
-  ctx.lineTo(-s, -s * 0.25); ctx.lineTo(-s, s * 0.25);
-  ctx.lineTo(-s * 0.7, s * 0.25); ctx.lineTo(-s * 0.7, s * 0.9);
-  ctx.lineTo(-s * 0.3, s * 0.9); ctx.lineTo(-s * 0.3, s * 0.25);
-  ctx.closePath(); ctx.fillStyle = fillStyle; ctx.fill(); ctx.restore();
-}
-function drawIconCircle(x, y, r, color) {
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = color; ctx.fill();
-}
-function drawIconTriangle(x, y, size, color) {
-  const h = size * Math.sqrt(3) / 2;
-  ctx.beginPath(); ctx.moveTo(x + size, y); ctx.lineTo(x - size / 2, y - h);
-  ctx.lineTo(x - size / 2, y + h); ctx.closePath();
-  ctx.fillStyle = color; ctx.fill();
-}
-function drawIconPlane(x, y, size, color) {
-  const s = size;
-  ctx.beginPath();
-  ctx.moveTo(x + s, y);
-  ctx.lineTo(x - s * 0.3, y - s * 0.25); ctx.lineTo(x - s * 0.3, y - s * 0.9);
-  ctx.lineTo(x - s * 0.7, y - s * 0.9); ctx.lineTo(x - s * 0.7, y - s * 0.25);
-  ctx.lineTo(x - s, y - s * 0.25); ctx.lineTo(x - s, y + s * 0.25);
-  ctx.lineTo(x - s * 0.7, y + s * 0.25); ctx.lineTo(x - s * 0.7, y + s * 0.9);
-  ctx.lineTo(x - s * 0.3, y + s * 0.9); ctx.lineTo(x - s * 0.3, y + s * 0.25);
-  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
-}
-function drawCoinIcon(cx, cy, r) {
-  const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
-  grad.addColorStop(0, "rgb(255, 245, 170)");
-  grad.addColorStop(0.5, "rgb(255, 210, 70)");
-  grad.addColorStop(1, "rgb(200, 140, 20)");
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = grad; ctx.fill();
-  ctx.lineWidth = Math.max(2, r * 0.12); ctx.strokeStyle = "rgb(255, 240, 150)"; ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx, cy, r * 0.7, 0, Math.PI * 2);
-  ctx.lineWidth = Math.max(1, r * 0.08); ctx.strokeStyle = "rgba(180, 120, 0, 0.6)"; ctx.stroke();
-  ctx.fillStyle = "rgba(120, 80, 0, 0.85)";
-  ctx.font = "bold " + Math.round(r * 1.4) + "px sans-serif";
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("$", cx, cy + r * 0.05);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-function drawGear(cx, cy, outerR, innerR, teeth, holeR, fillStyle) {
-  const steps = teeth * 4;
-  const startOffset = -Math.PI / 2;
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const angle = startOffset + (i / steps) * Math.PI * 2;
-    const phase = i % 4;
-    const r = (phase === 0 || phase === 1) ? outerR : innerR;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.moveTo(cx + holeR, cy); ctx.arc(cx, cy, holeR, 0, Math.PI * 2, true);
-  ctx.fillStyle = fillStyle; ctx.fill();
-}
-function drawHamburger(cx, cy, size, color) {
-  const w = size;
-  const h = Math.max(2, size * 0.12);
-  const gap = size * 0.28;
-  ctx.fillStyle = color;
-  ctx.fillRect(cx - w / 2, cy - gap - h / 2, w, h);
-  ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
-  ctx.fillRect(cx - w / 2, cy + gap - h / 2, w, h);
-}
-function drawJoystick() {
-  const active = joystickTouchId !== null || joystickMouseDown;
-  ctx.beginPath(); ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(60, 100, 160, 0.25)"; ctx.fill();
-  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(120, 170, 230, 0.55)"; ctx.stroke();
-  ctx.beginPath(); ctx.arc(JOYSTICK_CX, JOYSTICK_CY, JOYSTICK_BASE_RADIUS * 0.5, 0, Math.PI * 2);
-  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(120, 170, 230, 0.25)"; ctx.stroke();
-  if (joystickMagnitude > 0.05) {
-    ctx.beginPath(); ctx.moveTo(JOYSTICK_CX, JOYSTICK_CY);
-    ctx.lineTo(joystickKnobX, joystickKnobY);
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = active ? "rgba(180, 220, 255, 0.7)" : "rgba(150, 200, 255, 0.35)";
-    ctx.stroke();
-  }
-  ctx.beginPath(); ctx.arc(joystickKnobX, joystickKnobY, JOYSTICK_KNOB_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = active ? "rgba(120, 200, 255, 0.65)" : "rgba(90, 150, 220, 0.45)";
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = active ? "rgba(220, 240, 255, 0.95)" : "rgba(140, 190, 240, 0.7)";
-  ctx.stroke();
-  if (joystickMagnitude > 0.1) {
-    const dotX = joystickKnobX + joystickDirX * 18;
-    const dotY = joystickKnobY + joystickDirY * 18;
-    ctx.beginPath(); ctx.arc(dotX, dotY, 6, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.85)"; ctx.fill();
-  }
-}
-function drawCtrlButton(now) {
-  const modeText = getModeText();
-  const modeColor = getModeColor();
-  const pressed = ctrlBtnPressed;
-  const glow = 0.5 + 0.5 * Math.sin(now / 400);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H, 12);
-  else ctx.rect(CTRL_BTN_X, CTRL_BTN_Y, CTRL_BTN_W, CTRL_BTN_H);
-  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.9)" : "rgba(30, 55, 100, 0.65)";
-  ctx.fill();
-  ctx.lineWidth = 2;
-  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
-  else {
-    const r = 80 + Math.round(40 * glow);
-    const g = 140 + Math.round(50 * glow);
-    const b = 200 + Math.round(40 * glow);
-    ctx.strokeStyle = "rgba(" + r + ", " + g + ", " + b + ", 0.9)";
-  }
-  ctx.stroke();
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = modeColor; ctx.font = "bold 22px sans-serif";
-  ctx.fillText("Управление: " + modeText, CTRL_BTN_X + CTRL_BTN_W / 2, CTRL_BTN_Y + 24);
-  ctx.fillStyle = "rgba(200, 220, 245, 0.75)"; ctx.font = "13px sans-serif";
-  ctx.fillText("Нажми, чтобы сменить (или Q)", CTRL_BTN_X + CTRL_BTN_W / 2, CTRL_BTN_Y + 48);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-function drawInfoButton(now) {
-  const pressed = infoBtnPressed;
-  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(INFO_BTN_X, INFO_BTN_Y, INFO_BTN_SIZE, INFO_BTN_SIZE, 12);
-  else ctx.rect(INFO_BTN_X, INFO_BTN_Y, INFO_BTN_SIZE, INFO_BTN_SIZE);
-  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.7)";
-  ctx.fill();
-  ctx.lineWidth = 2;
-  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
-  else {
-    const r = 100 + Math.round(40 * pulse);
-    const g = 160 + Math.round(30 * pulse);
-    const b = 220 + Math.round(20 * pulse);
-    ctx.strokeStyle = "rgba(" + r + ", " + g + ", " + b + ", 0.9)";
-  }
-  ctx.stroke();
-  const cx = INFO_BTN_X + INFO_BTN_SIZE / 2;
-  const cy = INFO_BTN_Y + INFO_BTN_SIZE / 2;
-  drawGear(cx, cy, 15, 10, 8, 5, "rgb(230, 245, 255)");
-}
-function drawMenuButtonGame(now) {
-  const pressed = menuBtnPressed;
-  const pulse = 0.5 + 0.5 * Math.sin(now / 600);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE, 12);
-  else ctx.rect(MENU_BTN_GAME_X, MENU_BTN_GAME_Y, MENU_BTN_SIZE, MENU_BTN_SIZE);
-  ctx.fillStyle = pressed ? "rgba(90, 150, 220, 0.95)" : "rgba(30, 55, 100, 0.7)";
-  ctx.fill();
-  ctx.lineWidth = 2;
-  if (pressed) ctx.strokeStyle = "rgba(220, 240, 255, 1)";
-  else {
-    const r = 100 + Math.round(40 * pulse);
-    const g = 160 + Math.round(30 * pulse);
-    const b = 220 + Math.round(20 * pulse);
-    ctx.strokeStyle = "rgba(" + r + ", " + g + ", " + b + ", 0.9)";
-  }
-  ctx.stroke();
-  const cx = MENU_BTN_GAME_X + MENU_BTN_SIZE / 2;
-  const cy = MENU_BTN_GAME_Y + MENU_BTN_SIZE / 2;
-  drawHamburger(cx, cy, 22, "rgb(230, 245, 255)");
-}
-function drawDiffButton(x, y, w, h, diffKey) {
-  const isActive = diffKey === difficulty;
-  const color = DIFF_COLORS[diffKey];
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 10);
-  else ctx.rect(x, y, w, h);
-  ctx.fillStyle = isActive ? "rgba(60, 110, 180, 0.9)" : "rgba(25, 45, 85, 0.7)";
-  ctx.fill();
-  ctx.lineWidth = isActive ? 3 : 2;
-  ctx.strokeStyle = isActive ? color : "rgba(120, 170, 230, 0.5)";
-  ctx.stroke();
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = isActive ? color : "rgb(200, 220, 245)";
-  ctx.font = "bold 20px sans-serif";
-  ctx.fillText(DIFF_NAMES[diffKey], x + w / 2, y + h / 2);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-function drawInfoOverlay() {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.78)"; ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(INFO_PANEL_X, INFO_PANEL_Y, INFO_PANEL_W, INFO_PANEL_H, 16);
-  else ctx.rect(INFO_PANEL_X, INFO_PANEL_Y, INFO_PANEL_W, INFO_PANEL_H);
-  ctx.fillStyle = "rgba(18, 30, 60, 0.98)"; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(120, 170, 230, 0.85)"; ctx.stroke();
-  ctx.textAlign = "center"; ctx.textBaseline = "top";
-  ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "bold 34px sans-serif";
-  ctx.fillText("Об игре", WIDTH / 2, INFO_PANEL_Y + 22);
-  ctx.strokeStyle = "rgba(120, 170, 230, 0.3)"; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(INFO_PANEL_X + 30, INFO_PANEL_Y + 72);
-  ctx.lineTo(INFO_PANEL_X + INFO_PANEL_W - 30, INFO_PANEL_Y + 72);
-  ctx.stroke();
-  const leftX = INFO_PANEL_X + 36;
-  let y = INFO_PANEL_Y + 94;
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
-  ctx.fillText("УПРАВЛЕНИЕ", leftX, y); y += 30;
-  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
-  ctx.fillText("• WASD / ЦФЫВ — движение", leftX, y); y += 22;
-  ctx.fillText("• Мышь — шар следует за курсором", leftX, y); y += 22;
-  ctx.fillText("• Джойстик — управление на телефоне", leftX, y); y += 22;
-  ctx.fillText("• Q — сменить режим управления", leftX, y); y += 22;
-  ctx.fillText("• R — сброс уровня без перезагрузки", leftX, y); y += 38;
-  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
-  ctx.fillText("ВРАГИ", leftX, y); y += 30;
-  drawIconCircle(leftX + 10, y + 9, 9, "rgb(250, 220, 60)");
-  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
-  ctx.fillText("Жёлтый шар — летит в вашу позицию", leftX + 30, y); y += 28;
-  drawIconTriangle(leftX + 10, y + 9, 10, "rgb(255, 120, 0)");
-  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
-  ctx.fillText("Треугольник — преследует, взрыв через 6 сек", leftX + 30, y); y += 28;
-  drawIconPlane(leftX + 10, y + 9, 10, "rgb(240, 240, 250)");
-  ctx.fillStyle = "rgb(220, 235, 255)"; ctx.font = "16px sans-serif";
-  ctx.fillText("Ракета — взрыв через 0.2 сек, если вы в красной зоне", leftX + 30, y);
-  ctx.fillStyle = "rgb(160, 210, 255)"; ctx.font = "bold 20px sans-serif";
-  ctx.fillText("СЛОЖНОСТЬ", leftX, DIFF_SECTION_Y);
-  drawDiffButton(DIFF_BTN_X1, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "easy");
-  drawDiffButton(DIFF_BTN_X2, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "medium");
-  drawDiffButton(DIFF_BTN_X3, DIFF_BTN_Y, DIFF_BTN_W, DIFF_BTN_H, "hard");
-  const bestY = DIFF_BTN_Y + DIFF_BTN_H + 8;
-  ctx.textAlign = "center"; ctx.textBaseline = "top";
-  ctx.font = "bold 15px sans-serif";
-  const easyBest = Number(localStorage.getItem(bestScoreKey("easy")) || 0);
-  const mediumBest = Number(localStorage.getItem(bestScoreKey("medium")) || 0);
-  const hardBest = Number(localStorage.getItem(bestScoreKey("hard")) || 0);
-  ctx.fillStyle = "rgba(180, 220, 255, 0.85)";
-  ctx.fillText("Рекорд: " + easyBest, DIFF_BTN_X1 + DIFF_BTN_W / 2, bestY);
-  ctx.fillText("Рекорд: " + mediumBest, DIFF_BTN_X2 + DIFF_BTN_W / 2, bestY);
-  ctx.fillText("Рекорд: " + hardBest, DIFF_BTN_X3 + DIFF_BTN_W / 2, bestY);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-  ctx.fillStyle = "rgba(160, 190, 225, 0.7)"; ctx.font = "13px sans-serif";
-  ctx.fillText("Выбор сложности сбрасывает уровень и счёт. Рекорды хранятся раздельно.", leftX, bestY + 28);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(INFO_CLOSE_X, INFO_CLOSE_Y, INFO_CLOSE_W, INFO_CLOSE_H, 12);
-  else ctx.rect(INFO_CLOSE_X, INFO_CLOSE_Y, INFO_CLOSE_W, INFO_CLOSE_H);
-  ctx.fillStyle = infoCloseBtnPressed ? "rgba(90, 150, 220, 0.95)" : "rgba(50, 110, 180, 0.9)";
-  ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(180, 220, 255, 0.9)"; ctx.stroke();
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgb(255, 255, 255)"; ctx.font = "bold 20px sans-serif";
-  ctx.fillText("Понятно", INFO_CLOSE_X + INFO_CLOSE_W / 2, INFO_CLOSE_Y + INFO_CLOSE_H / 2);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-function drawMenuButton(btn, now) {
-  const hovered = isInRect(mouseX, mouseY, btn);
-  const isDisabled = !!btn.disabled;
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 14);
-  else ctx.rect(btn.x, btn.y, btn.w, btn.h);
-  if (isDisabled) ctx.fillStyle = "rgba(30, 40, 60, 0.5)";
-  else if (hovered) ctx.fillStyle = "rgba(60, 110, 180, 0.9)";
-  else ctx.fillStyle = "rgba(30, 60, 110, 0.75)";
-  ctx.fill();
-  ctx.lineWidth = 2;
-  if (isDisabled) ctx.strokeStyle = "rgba(80, 100, 130, 0.5)";
-  else if (hovered) ctx.strokeStyle = "rgba(200, 230, 255, 0.95)";
-  else ctx.strokeStyle = "rgba(120, 170, 230, 0.7)";
-  ctx.stroke();
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  if (isDisabled) ctx.fillStyle = "rgba(160, 180, 200, 0.6)";
-  else ctx.fillStyle = "rgb(235, 245, 255)";
-  ctx.font = "bold 26px sans-serif";
-  ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-function drawMenuTitle(title, subtitle) {
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const size = Math.min(WIDTH * 0.09, 82);
-  ctx.fillStyle = "rgb(235, 245, 255)"; ctx.font = "bold " + size + "px sans-serif";
-  ctx.fillText(title, WIDTH / 2, HEIGHT * 0.13);
-  if (subtitle) {
-    ctx.fillStyle = "rgba(160, 200, 240, 0.85)"; ctx.font = "18px sans-serif";
-    ctx.fillText(subtitle, WIDTH / 2, HEIGHT * 0.13 + size * 0.8);
-  }
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-
-function drawSkinCell(idx) {
-  const skin = SKINS[idx];
-  const p = getSkinCellPos(idx);
-  const owned = ownedSkins.includes(idx);
-  const equipped = selectedSkin === idx;
-  const [r, g, b] = skin.rgb;
-
-  const cardR = SHOP_RADIUS + 6;
-  ctx.beginPath();
-  ctx.arc(p.cx, p.cy, cardR, 0, Math.PI * 2);
-  if (equipped) ctx.fillStyle = "rgba(255, 220, 80, 0.25)";
-  else if (owned) ctx.fillStyle = "rgba(60, 110, 180, 0.35)";
-  else ctx.fillStyle = "rgba(30, 45, 75, 0.4)";
-  ctx.fill();
-
-  const grad = ctx.createRadialGradient(
-    p.cx - SHOP_RADIUS * 0.3, p.cy - SHOP_RADIUS * 0.3, SHOP_RADIUS * 0.15,
-    p.cx, p.cy, SHOP_RADIUS
-  );
-  grad.addColorStop(0, "rgb(" + Math.min(255, r + 80) + ", " + Math.min(255, g + 80) + ", " + Math.min(255, b + 80) + ")");
-  grad.addColorStop(0.5, "rgb(" + r + ", " + g + ", " + b + ")");
-  grad.addColorStop(1, "rgb(" + Math.max(0, r - 60) + ", " + Math.max(0, g - 60) + ", " + Math.max(0, b - 60) + ")");
-
-  ctx.beginPath();
-  ctx.arc(p.cx, p.cy, SHOP_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = grad; ctx.fill();
-
-  ctx.lineWidth = equipped ? 3 : 2;
-  if (equipped) ctx.strokeStyle = "rgb(255, 220, 80)";
-  else if (owned) ctx.strokeStyle = "rgba(180, 220, 255, 0.7)";
-  else ctx.strokeStyle = "rgba(120, 170, 230, 0.4)";
-  ctx.stroke();
-
-  if (owned) {
-    ctx.beginPath();
-    ctx.arc(p.cx - SHOP_RADIUS * 0.35, p.cy - SHOP_RADIUS * 0.35, SHOP_RADIUS * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.5)"; ctx.fill();
-  }
-
-  if (!owned) {
-    ctx.beginPath();
-    ctx.arc(p.cx, p.cy, SHOP_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.55)"; ctx.fill();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
-    ctx.font = "bold " + Math.round(SHOP_RADIUS * 0.8) + "px sans-serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("?", p.cx, p.cy + 2);
-  }
-
-  const labelY = p.cy + SHOP_RADIUS + 14;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  if (equipped) {
-    ctx.fillStyle = "rgb(255, 220, 80)"; ctx.font = "bold 12px sans-serif";
-    ctx.fillText("✓", p.cx, labelY);
-  } else if (owned) {
-    ctx.fillStyle = "rgba(180, 220, 255, 0.8)"; ctx.font = "12px sans-serif";
-    ctx.fillText("✓", p.cx, labelY);
-  } else {
-    drawCoinIcon(p.cx - 12, labelY, 7);
-    ctx.fillStyle = coins >= skin.cost ? "rgb(255, 220, 100)" : "rgba(255, 120, 120, 0.9)";
-    ctx.font = "bold 13px sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(String(skin.cost), p.cx - 2, labelY);
-    ctx.textAlign = "center";
-  }
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-}
-
-function drawMainMenu(now) {
-  drawMenuTitle("Green Ball Evasion", "Уворачивайся. Выживай.");
-  if (nickname) {
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(160, 200, 240, 0.7)"; ctx.font = "18px sans-serif";
-    ctx.fillText("Игрок: " + nickname, WIDTH / 2, HEIGHT * 0.78);
-  }
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  drawCoinIcon(WIDTH / 2 - 50, HEIGHT * 0.82, 14);
-  ctx.fillStyle = "rgb(255, 220, 100)"; ctx.font = "bold 20px sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(String(coins), WIDTH / 2 - 26, HEIGHT * 0.82 + 1);
-  ctx.textAlign = "center"; ctx.font = "13px sans-serif";
-  if (supabaseClient) {
-    ctx.fillStyle = "rgba(140, 220, 160, 0.7)";
-    ctx.fillText("Онлайн-лидерборд подключён", WIDTH / 2, HEIGHT * 0.87);
-  } else {
-    ctx.fillStyle = "rgba(255, 180, 100, 0.8)";
-    ctx.fillText("Лидерборд офлайн", WIDTH / 2, HEIGHT * 0.87);
-  }
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-  const buttons = getMainMenuButtons();
-  for (const b of buttons) drawMenuButton(b, now);
-}
-
-function drawPlayMenu(now) {
-  drawMenuTitle("Режим игры", "Выбери, как играть");
-  const buttons = getPlayMenuButtons();
-  for (const b of buttons) drawMenuButton(b, now);
-}
-function drawLevelsMenu(now) {
-  drawMenuTitle("Выбор уровня", "Пройди все уровни паркура");
-  const buttons = getLevelsMenuButtons();
-  for (const b of buttons) drawMenuButton(b, now);
-}
-
-function drawShop(now) {
-  drawMenuTitle("Магазин", "Скины для шара — 10 монет");
-
-  const panelW = Math.min(WIDTH - 80, 420);
-  const panelH = 70;
-  const panelX = (WIDTH - panelW) / 2;
-  const panelY = HEIGHT * 0.20;
-
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(panelX, panelY, panelW, panelH, 14);
-  else ctx.rect(panelX, panelY, panelW, panelH);
-  const grad = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-  grad.addColorStop(0, "rgba(60, 90, 140, 0.85)");
-  grad.addColorStop(1, "rgba(30, 50, 90, 0.9)");
-  ctx.fillStyle = grad; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 220, 100, 0.6)"; ctx.stroke();
-
-  drawCoinIcon(panelX + 40, panelY + panelH / 2, 18);
-
-  ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgb(255, 240, 170)"; ctx.font = "bold 26px sans-serif";
-  ctx.fillText(String(coins), panelX + 68, panelY + panelH / 2);
-
-  ctx.textAlign = "right";
-  ctx.fillStyle = "rgba(200, 220, 245, 0.7)"; ctx.font = "13px sans-serif";
-  ctx.fillText("100 очков = 1 монета", panelX + panelW - 18, panelY + panelH / 2);
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-
-  for (let i = 0; i < SKINS.length; i++) {
-    drawSkinCell(i);
-  }
-
-  const buttons = getShopButtons();
-  for (const b of buttons) drawMenuButton(b, now);
-}
-
-let leaderboardLoading = false;
-function drawLeaderboard(now) {
-  drawMenuTitle("Таблица лидеров", "Лучшие результаты игроков");
-  const listTop = HEIGHT * 0.34;
-  const listBottom = HEIGHT * 0.78;
-  const availH = listBottom - listTop;
-  let lb = leaderboardCache || [];
-  if (!leaderboardLoading && supabaseClient) {
-    leaderboardLoading = true;
-    loadLeaderboard().then(() => { leaderboardLoading = false; });
-  }
-  if (lb.length === 0) {
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    if (leaderboardLoading) {
-      ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 22px sans-serif";
-      ctx.fillText("Загрузка...", WIDTH / 2, HEIGHT * 0.5);
-    } else if (!supabaseClient) {
-      ctx.fillStyle = "rgba(255, 180, 100, 0.9)"; ctx.font = "bold 20px sans-serif";
-      ctx.fillText("Лидерборд не подключён", WIDTH / 2, HEIGHT * 0.47);
-    } else {
-      ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 22px sans-serif";
-      ctx.fillText("Пока нет результатов", WIDTH / 2, HEIGHT * 0.5);
-      ctx.fillStyle = "rgba(160, 190, 225, 0.7)"; ctx.font = "16px sans-serif";
-      ctx.fillText("Сыграй игру — твой рекорд появится здесь", WIDTH / 2, HEIGHT * 0.5 + 36);
-    }
-    ctx.textAlign = "left"; ctx.textBaseline = "top";
-  } else {
-    const rowW = Math.min(WIDTH - 40, 640);
-    const rowH = 56;
-    const rowGap = 8;
-    const rowX = (WIDTH - rowW) / 2;
-    const maxRows = Math.max(1, Math.floor((availH + rowGap) / (rowH + rowGap)));
-    const shown = Math.min(lb.length, maxRows);
-    for (let i = 0; i < shown; i++) {
-      const entry = lb[i];
-      const y = listTop + i * (rowH + rowGap);
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(rowX, y, rowW, rowH, 10);
-      else ctx.rect(rowX, y, rowW, rowH);
-      let rowColor = "rgba(30, 55, 100, 0.6)";
-      if (i === 0) rowColor = "rgba(140, 115, 20, 0.55)";
-      else if (i === 1) rowColor = "rgba(85, 90, 105, 0.55)";
-      else if (i === 2) rowColor = "rgba(105, 70, 35, 0.55)";
-      ctx.fillStyle = rowColor; ctx.fill();
-      ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(120, 170, 230, 0.4)"; ctx.stroke();
-      ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      let rankColor = "rgb(200, 220, 245)";
-      if (i === 0) rankColor = "rgb(255, 220, 100)";
-      else if (i === 1) rankColor = "rgb(220, 230, 245)";
-      else if (i === 2) rankColor = "rgb(230, 175, 110)";
-      ctx.fillStyle = rankColor; ctx.font = "bold 20px sans-serif";
-      ctx.fillText("#" + (i + 1), rowX + 22, y + rowH / 2);
-      ctx.fillStyle = "rgb(235, 245, 255)"; ctx.font = "bold 20px sans-serif";
-      ctx.fillText(entry.nick || "???", rowX + 82, y + rowH / 2);
-      const diffColor = DIFF_COLORS[entry.difficulty] || DIFF_COLORS.medium;
-      ctx.beginPath(); ctx.arc(rowX + rowW - 150, y + rowH / 2, 7, 0, Math.PI * 2);
-      ctx.fillStyle = diffColor; ctx.fill();
-      ctx.fillStyle = "rgba(200, 220, 245, 0.7)"; ctx.font = "14px sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(DIFF_NAMES[entry.difficulty] || "?", rowX + rowW - 32, y + rowH / 2 - 8);
-      ctx.fillStyle = "rgb(250, 220, 100)"; ctx.font = "bold 22px sans-serif";
-      ctx.fillText(String(entry.score), rowX + rowW - 32, y + rowH / 2 + 10);
-    }
-    if (lb.length > shown) {
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgba(160, 190, 225, 0.6)"; ctx.font = "13px sans-serif";
-      ctx.fillText("...и ещё " + (lb.length - shown), WIDTH / 2, listBottom + 14);
-    }
-  }
-  if (nickname) {
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(160, 200, 240, 0.7)"; ctx.font = "16px sans-serif";
-    ctx.fillText("Твой ник: " + nickname, WIDTH / 2, HEIGHT * 0.79);
-  }
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-  const buttons = getLeaderboardButtons();
-  for (const b of buttons) drawMenuButton(b, now);
-}
-
-function drawMenuScreen(now) {
-  if (menuState === "main") drawMainMenu(now);
-  else if (menuState === "play_menu") drawPlayMenu(now);
-  else if (menuState === "levels") drawLevelsMenu(now);
-  else if (menuState === "leaderboard") drawLeaderboard(now);
-  else if (menuState === "shop") drawShop(now);
-}
-
-// ===== СПАВН =====
-function spawnEnemy() {
-  const side = Math.floor(Math.random() * 4);
-  let ex, ey;
-  if (side === 0) { ex = Math.random() * (WIDTH - 2 * ENEMY_RADIUS) + ENEMY_RADIUS; ey = ENEMY_RADIUS; }
-  else if (side === 1) { ex = WIDTH - ENEMY_RADIUS; ey = Math.random() * (HEIGHT - 2 * ENEMY_RADIUS) + ENEMY_RADIUS; }
-  else if (side === 2) { ex = Math.random() * (WIDTH - 2 * ENEMY_RADIUS) + ENEMY_RADIUS; ey = HEIGHT - ENEMY_RADIUS; }
-  else { ex = ENEMY_RADIUS; ey = Math.random() * (HEIGHT - 2 * ENEMY_RADIUS) + ENEMY_RADIUS; }
-  enemies.push({ x: ex, y: ey, dx: 0, dy: 0, state: "warning", warningTimer: 0 });
-}
-function spawnTriangle() {
-  const side = Math.floor(Math.random() * 4);
-  let tx, ty;
-  if (side === 0) { tx = Math.random() * (WIDTH - 2 * TRIANGLE_SIZE) + TRIANGLE_SIZE; ty = TRIANGLE_SIZE; }
-  else if (side === 1) { tx = WIDTH - TRIANGLE_SIZE; ty = Math.random() * (HEIGHT - 2 * TRIANGLE_SIZE) + TRIANGLE_SIZE; }
-  else if (side === 2) { tx = Math.random() * (WIDTH - 2 * TRIANGLE_SIZE) + TRIANGLE_SIZE; ty = HEIGHT - TRIANGLE_SIZE; }
-  else { tx = TRIANGLE_SIZE; ty = Math.random() * (HEIGHT - 2 * TRIANGLE_SIZE) + TRIANGLE_SIZE; }
-  triangles.push({ x: tx, y: ty, vx: 0, vy: 0, angle: 0, age: 0, state: "warning", warningTimer: 0, lastSkidX: tx, lastSkidY: ty });
-}
-function spawnPlane() {
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-  if (side === 0) { x = Math.random() * (WIDTH - 2 * PLANE_SIZE) + PLANE_SIZE; y = PLANE_SIZE; }
-  else if (side === 1) { x = WIDTH - PLANE_SIZE; y = Math.random() * (HEIGHT - 2 * PLANE_SIZE) + PLANE_SIZE; }
-  else if (side === 2) { x = Math.random() * (WIDTH - 2 * PLANE_SIZE) + PLANE_SIZE; y = HEIGHT - PLANE_SIZE; }
-  else { x = PLANE_SIZE; y = Math.random() * (HEIGHT - 2 * PLANE_SIZE) + PLANE_SIZE; }
-  const targetX = px, targetY = py;
-  let dx = targetX - x, dy = targetY - y;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  dx /= len; dy /= len;
-  planes.push({ x: x, y: y, dx: dx, dy: dy, angle: Math.atan2(dy, dx), traveled: 0, inZoneTimer: 0 });
-}
-
-// ============================================================
-// ГЛАВНЫЙ ЦИКЛ
-// ============================================================
-let lastTime = performance.now();
-
-function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.1);
-  lastTime = now;
-
-  if (menuState === "game") {
-    if (!isDead && !infoOpen) {
-      let dx = 0, dy = 0;
-      if (controlMode === "keyboard") {
-        if (keys["a"] || keys["ф"]) dx -= 1;
-        if (keys["d"] || keys["в"]) dx += 1;
-        if (keys["w"] || keys["ц"]) dy -= 1;
-        if (keys["s"] || keys["ы"]) dy += 1;
-        if (dx !== 0 && dy !== 0) {
-          const len = Math.sqrt(dx * dx + dy * dy);
-          dx /= len; dy /= len;
-        }
-        px += dx * SPEED * dt;
-        py += dy * SPEED * dt;
-      } else if (controlMode === "mouse") {
-        const mdx = mouseX - px, mdy = mouseY - py;
-        const dist = Math.sqrt(mdx * mdx + mdy * mdy);
-        if (dist > MOUSE_DEADZONE) {
-          const step = SPEED * dt;
-          if (step >= dist) { px = mouseX; py = mouseY; }
-          else { px += (mdx / dist) * step; py += (mdy / dist) * step; }
-        }
-      } else {
-        if (joystickMagnitude > JOYSTICK_DEADZONE && (joystickDirX !== 0 || joystickDirY !== 0)) {
-          if (JOYSTICK_ANALOG) {
-            const eff = Math.min(1, (joystickMagnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE));
-            px += joystickDirX * SPEED * eff * dt;
-            py += joystickDirY * SPEED * eff * dt;
-          } else {
-            px += joystickDirX * SPEED * dt;
-            py += joystickDirY * SPEED * dt;
-          }
-        }
-      }
-      if (px < BALL_RADIUS) px = BALL_RADIUS;
-      if (px > WIDTH - BALL_RADIUS) px = WIDTH - BALL_RADIUS;
-      if (py < BALL_RADIUS) py = BALL_RADIUS;
-      if (py > HEIGHT - BALL_RADIUS) py = HEIGHT - BALL_RADIUS;
-
-      scoreTimer += dt;
-      if (scoreTimer >= 1) {
-        scoreTimer -= 1;
-        score += SCORE_PER_SECOND;
-        if (score > bestScore) {
-          bestScore = score;
-          localStorage.setItem(bestScoreKey(difficulty), bestScore);
-        }
-      }
-      speedupTimer += dt;
-      if (speedupTimer >= SPEEDUP_EVERY) {
-        speedupTimer -= SPEEDUP_EVERY;
-        SPAWN_INTERVAL = Math.max(SPAWN_MIN, SPAWN_INTERVAL * SPEEDUP_FACTOR);
-      }
-      spawnTimer += dt;
-      if (spawnTimer >= SPAWN_INTERVAL) { spawnTimer -= SPAWN_INTERVAL; spawnEnemy(); }
-      triangleSpawnTimer += dt;
-      if (triangleSpawnTimer >= TRIANGLE_SPAWN_INTERVAL) { triangleSpawnTimer -= TRIANGLE_SPAWN_INTERVAL; spawnTriangle(); }
-      planeSpawnTimer += dt;
-      if (planeSpawnTimer >= PLANE_SPAWN_INTERVAL) { planeSpawnTimer -= PLANE_SPAWN_INTERVAL; spawnPlane(); }
-
-      // Враги: жёлтые
-      for (let i = enemies.length - 1; i >= 0; i--) {
-        const e = enemies[i];
-        if (e.state === "warning") {
-          e.warningTimer += dt;
-          if (e.warningTimer >= WARNING_TIME) {
-            let ddx = px - e.x, ddy = py - e.y;
-            const len = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-            e.dx = ddx / len; e.dy = ddy / len;
-            e.state = "attack";
-          }
+    if (authMode === 'register') {
+      // Регистрация
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password: pass,
+        options: { data: { nickname: nick } }
+      });
+
+      if (error) {
+        if (error.message.includes('already registered')) {
+          authError.textContent = 'Такой ник уже занят';
         } else {
-          e.x += e.dx * ENEMY_SPEED * dt;
-          e.y += e.dy * ENEMY_SPEED * dt;
-          if (e.x < -ENEMY_RADIUS || e.x > WIDTH + ENEMY_RADIUS ||
-              e.y < -ENEMY_RADIUS || e.y > HEIGHT + ENEMY_RADIUS) {
-            enemies.splice(i, 1); continue;
-          }
-          const ddx = e.x - px, ddy = e.y - py;
-          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-          if (dist < ENEMY_RADIUS + BALL_RADIUS) {
-            isDead = true;
-            enemies.length = 0; triangles.length = 0; planes.length = 0;
-            break;
-          }
+          authError.textContent = 'Ошибка: ' + error.message;
         }
+        authSubmit.disabled = false;
+        authSubmit.textContent = oldText;
+        return;
       }
 
-      // Треугольники
-      if (!isDead) {
-        for (let i = triangles.length - 1; i >= 0; i--) {
-          const t = triangles[i];
-          if (t.state === "warning") {
-            t.warningTimer += dt;
-            const adx = px - t.x, ady = py - t.y;
-            const targetAngle = Math.atan2(ady, adx);
-            let diff = targetAngle - t.angle;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            t.angle += diff * Math.min(1, TRIANGLE_TURN_RATE * dt);
-            if (t.warningTimer >= TRIANGLE_WARNING_TIME) { t.state = "attack"; t.age = 0; }
-            continue;
-          }
-          t.age += dt;
-          if (t.age >= TRIANGLE_LIFETIME) {
-            explosions.push({ x: t.x, y: t.y, t: 0, duration: 0.45, maxRadius: 42, killsPlayer: false });
-            triangles.splice(i, 1); continue;
-          }
-          const ddx = px - t.x, ddy = py - t.y;
-          const targetAngle = Math.atan2(ddy, ddx);
-          let diff = targetAngle - t.angle;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          const maxTurn = TRIANGLE_TURN_RATE * dt;
-          if (Math.abs(diff) > maxTurn) t.angle += Math.sign(diff) * maxTurn;
-          else t.angle = targetAngle;
-          const idealVx = Math.cos(t.angle) * TRIANGLE_SPEED;
-          const idealVy = Math.sin(t.angle) * TRIANGLE_SPEED;
-          const grip = Math.min(1, TRIANGLE_GRIP * dt);
-          t.vx += (idealVx - t.vx) * grip;
-          t.vy += (idealVy - t.vy) * grip;
-          t.x += t.vx * dt; t.y += t.vy * dt;
-          const velocityAngle = Math.atan2(t.vy, t.vx);
-          let driftDiff = velocityAngle - t.angle;
-          while (driftDiff > Math.PI) driftDiff -= Math.PI * 2;
-          while (driftDiff < -Math.PI) driftDiff += Math.PI * 2;
-          const driftAmount = Math.abs(driftDiff);
-          const currentSpeed = Math.sqrt(t.vx * t.vx + t.vy * t.vy);
-          if (driftAmount > DRIFT_THRESHOLD && currentSpeed > 60) {
-            const skidDx = t.x - t.lastSkidX, skidDy = t.y - t.lastSkidY;
-            const skidDist = Math.sqrt(skidDx * skidDx + skidDy * skidDy);
-            if (skidDist > 6) {
-              const perpX = Math.cos(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
-              const perpY = Math.sin(t.angle + Math.PI / 2) * TRIANGLE_SIZE * 0.7;
-              skidMarks.push({ x: t.x - perpX, y: t.y - perpY, t: 0, life: 0.9, intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2) });
-              skidMarks.push({ x: t.x + perpX, y: t.y + perpY, t: 0, life: 0.9, intensity: Math.min(1, (driftAmount - DRIFT_THRESHOLD) * 2) });
-              t.lastSkidX = t.x; t.lastSkidY = t.y;
-            }
-          } else { t.lastSkidX = t.x; t.lastSkidY = t.y; }
-          const distToPlayer = Math.sqrt((t.x - px) * (t.x - px) + (t.y - py) * (t.y - py));
-          if (distToPlayer < TRIANGLE_SIZE * 0.7 + BALL_RADIUS) {
-            isDead = true;
-            enemies.length = 0; triangles.length = 0; planes.length = 0;
-            break;
-          }
-        }
+      // Если Supabase требует подтверждение email — но мы его отключили
+      if (data.user && !data.session) {
+        authSuccess.textContent = 'Аккаунт создан! Проверьте email.';
+        authSubmit.disabled = false;
+        authSubmit.textContent = oldText;
+        return;
       }
 
-      // Ракеты
-      if (!isDead) {
-        for (let i = planes.length - 1; i >= 0; i--) {
-          const p = planes[i];
-          p.x += p.dx * PLANE_SPEED * dt;
-          p.y += p.dy * PLANE_SPEED * dt;
-          p.traveled += PLANE_SPEED * dt;
-          if (p.traveled > PLANE_MAX_PATH) { planes.splice(i, 1); continue; }
-          const ddx = px - p.x, ddy = py - p.y;
-          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-          if (dist < PLANE_EXPLOSION_RADIUS) {
-            p.inZoneTimer += dt;
-            if (p.inZoneTimer >= PLANE_DANGER_DELAY) {
-              explosions.push({
-                x: p.x, y: p.y, t: 0, duration: 0.7,
-                maxRadius: PLANE_EXPLOSION_RADIUS * 1.4,
-                lethalRadius: PLANE_EXPLOSION_RADIUS, killsPlayer: true
-              });
-              planes.splice(i, 1); continue;
-            }
-          } else { p.inZoneTimer = 0; }
-        }
-      }
-    }
+      // Успешный вход сразу после регистрации
+      showMainPage(nick);
+    } else {
+      // Вход
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password: pass
+      });
 
-    // Взрывы
-    for (let i = explosions.length - 1; i >= 0; i--) {
-      const ex = explosions[i];
-      ex.t += dt;
-      if (ex.killsPlayer && !isDead && !infoOpen) {
-        const ddx = px - ex.x, ddy = py - ex.y;
-        const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-        if (dist < ex.lethalRadius) {
-          isDead = true;
-          enemies.length = 0; triangles.length = 0; planes.length = 0;
-        }
+      if (error) {
+        authError.textContent = 'Неверный ник или пароль';
+        authSubmit.disabled = false;
+        authSubmit.textContent = oldText;
+        return;
       }
-      if (ex.t >= ex.duration) explosions.splice(i, 1);
-    }
-    // Следы
-    for (let i = skidMarks.length - 1; i >= 0; i--) {
-      const s = skidMarks[i];
-      s.t += dt;
-      if (s.t >= s.life) skidMarks.splice(i, 1);
-    }
 
-    // Сохранение счёта и монет
-    if (isDead && !scoreSavedThisLife) {
-      if (nickname && score > 0) saveScoreToSupabase(nickname, score, difficulty);
-      const earned = Math.floor(score / 100);
-      if (earned > 0) {
-        coins += earned;
-        coinsEarnedThisLife = earned;
-        saveCoins();
-      }
-      scoreSavedThisLife = true;
+      const userNick = data.user?.user_metadata?.nickname || nick;
+      showMainPage(userNick);
     }
-
-    // Рисование игрового мира
-    ctx.fillStyle = "rgb(10, 15, 40)";
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-    if (controlMode === "mouse" && !isDead) {
-      ctx.beginPath(); ctx.arc(mouseX, mouseY, 6, 0, Math.PI * 2);
-      ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(120, 200, 255, 0.7)"; ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(mouseX - 10, mouseY); ctx.lineTo(mouseX - 3, mouseY);
-      ctx.moveTo(mouseX + 3, mouseY); ctx.lineTo(mouseX + 10, mouseY);
-      ctx.moveTo(mouseX, mouseY - 10); ctx.lineTo(mouseX, mouseY - 3);
-      ctx.moveTo(mouseX, mouseY + 3); ctx.lineTo(mouseX, mouseY + 10);
-      ctx.strokeStyle = "rgba(120, 200, 255, 0.5)"; ctx.stroke();
-    }
-    for (const s of skidMarks) {
-      const p = s.t / s.life;
-      const alpha = (1 - p) * 0.55 * s.intensity;
-      ctx.beginPath(); ctx.arc(s.x, s.y, 2.5 + p * 2, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 130, 50, " + alpha + ")"; ctx.fill();
-    }
-    // Жёлтые шары
-    for (const e of enemies) {
-      if (e.state === "warning") {
-        const tt = e.warningTimer / WARNING_TIME;
-        const pulse = 0.5 + 0.5 * Math.sin(e.warningTimer * 30);
-        const ringRadius = ENEMY_RADIUS + (1 - tt) * 14;
-        ctx.beginPath(); ctx.arc(e.x, e.y, ringRadius, 0, Math.PI * 2);
-        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(250, 220, 60, " + (0.4 + 0.4 * pulse) + ")"; ctx.stroke();
-        ctx.beginPath(); ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(250, 220, 60, " + (0.35 + 0.3 * pulse) + ")"; ctx.fill();
-      } else {
-        ctx.beginPath(); ctx.arc(e.x, e.y, ENEMY_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = "rgb(250, 220, 60)"; ctx.fill();
-      }
-    }
-    // Треугольники
-    for (const t of triangles) {
-      if (t.state === "warning") {
-        const tt = t.warningTimer / TRIANGLE_WARNING_TIME;
-        const pulse = 0.5 + 0.5 * Math.sin(t.warningTimer * 30);
-        const ringRadius = TRIANGLE_SIZE + (1 - tt) * 14;
-        ctx.beginPath(); ctx.arc(t.x, t.y, ringRadius, 0, Math.PI * 2);
-        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 140, 40, " + (0.4 + 0.4 * pulse) + ")"; ctx.stroke();
-        ctx.globalAlpha = 0.35 + 0.3 * pulse;
-        drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
-        ctx.globalAlpha = 1;
-        continue;
-      }
-      drawTriangle(t.x, t.y, t.angle, TRIANGLE_COLOR);
-      const lifeLeft = 1 - t.age / TRIANGLE_LIFETIME;
-      const blinkRate = 6 + (1 - lifeLeft) * 20;
-      const blinkAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t.age * blinkRate));
-      ctx.beginPath(); ctx.arc(t.x, t.y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 255, 200, " + blinkAlpha + ")"; ctx.fill();
-    }
-    // Ракеты
-    for (const p of planes) {
-      drawPlane(p.x, p.y, p.angle, "rgb(240, 240, 250)");
-      if (p.inZoneTimer > 0) {
-        const prog = p.inZoneTimer / PLANE_DANGER_DELAY;
-        const ringRadius = PLANE_SIZE + (PLANE_EXPLOSION_RADIUS - PLANE_SIZE) * (1 - prog);
-        ctx.beginPath(); ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255, 60, 30, 0.08)"; ctx.fill();
-        const pulse = 0.65 + 0.35 * Math.sin(now / 60);
-        ctx.beginPath(); ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
-        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255, 100, 50, " + pulse + ")"; ctx.stroke();
-        ctx.beginPath(); ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
-        ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255, 80, 40, " + pulse + ")"; ctx.stroke();
-      } else {
-        const pulse = 0.4 + 0.3 * Math.sin(now / 100 + p.x);
-        ctx.beginPath(); ctx.arc(p.x, p.y, PLANE_SIZE * 0.9, 0, Math.PI * 2);
-        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(220, 220, 255, " + pulse + ")"; ctx.stroke();
-      }
-    }
-    // Взрывы
-    for (const ex of explosions) {
-      const prog = ex.t / ex.duration;
-      const radius = 8 + prog * (ex.maxRadius - 8);
-      const alpha = 1 - prog;
-      if (ex.killsPlayer) {
-        ctx.beginPath(); ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
-        ctx.lineWidth = 3 * (1 - prog) + 1.5;
-        ctx.strokeStyle = "rgba(255, 200, 100, " + alpha + ")"; ctx.stroke();
-        const lethalAlpha = Math.max(0, 1 - prog * 1.6);
-        ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255, 80, 40, " + (lethalAlpha * 0.45) + ")"; ctx.fill();
-        ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.lethalRadius, 0, Math.PI * 2);
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = "rgba(255, 120, 60, " + (lethalAlpha * 0.9) + ")"; ctx.stroke();
-      } else {
-        ctx.beginPath(); ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
-        ctx.lineWidth = 3 * (1 - prog) + 1;
-        ctx.strokeStyle = "rgba(255, 170, 60, " + alpha + ")"; ctx.stroke();
-        ctx.beginPath(); ctx.arc(ex.x, ex.y, radius * 0.6, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255, 220, 120, " + (alpha * 0.6) + ")"; ctx.fill();
-      }
-    }
-    // Игрок — со скином
-    if (!isDead) {
-      const sc = getSkinColors();
-      const grad = ctx.createRadialGradient(
-        px - BALL_RADIUS * 0.3, py - BALL_RADIUS * 0.3, BALL_RADIUS * 0.15,
-        px, py, BALL_RADIUS
-      );
-      grad.addColorStop(0, sc.light);
-      grad.addColorStop(0.5, sc.base);
-      grad.addColorStop(1, sc.dark);
-      ctx.beginPath(); ctx.arc(px, py, BALL_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = grad; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = sc.outline; ctx.stroke();
-    }
-    if (controlMode === "touch" && !isDead) drawJoystick();
-
-    // HUD
-    ctx.textAlign = "left"; ctx.textBaseline = "top";
-    ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "bold 28px sans-serif";
-    ctx.fillText("Счёт: " + score, 16, 16);
-    ctx.fillStyle = "rgb(160, 200, 240)"; ctx.font = "18px sans-serif";
-    ctx.fillText("Лучший счёт: " + bestScore, 16, 52);
-    ctx.fillStyle = DIFF_COLORS[difficulty]; ctx.font = "bold 16px sans-serif";
-    ctx.fillText("Сложность: " + DIFF_NAMES[difficulty], 16, 78);
-
-    drawCoinIcon(26, 108, 11);
-    ctx.fillStyle = "rgb(255, 220, 100)"; ctx.font = "bold 16px sans-serif";
-    ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    ctx.fillText(String(coins), 44, 109);
-    ctx.textAlign = "left"; ctx.textBaseline = "top";
-
-    if (nickname) {
-      ctx.fillStyle = "rgba(160, 200, 240, 0.8)"; ctx.font = "15px sans-serif";
-      ctx.fillText("Игрок: " + nickname, 16, 128);
-    }
-    ctx.fillStyle = "rgb(120, 150, 190)"; ctx.font = "14px sans-serif";
-    ctx.fillText("Спавн шаров: " + SPAWN_INTERVAL.toFixed(2) + " с", 16, 152);
-    ctx.fillText("Треугольников: " + triangles.length, 16, 172);
-    ctx.fillText("Ракет: " + planes.length, 16, 190);
-    ctx.fillStyle = "rgba(180, 210, 240, 0.85)"; ctx.font = "bold 14px sans-serif";
-    if (mobileDevice) ctx.fillText("Кнопка «Сброс» — очищает поле", 16, 214);
-    else ctx.fillText("R — сброс · Esc — меню", 16, 214);
-
-    drawCtrlButton(now);
-    drawMenuButtonGame(now);
-    drawInfoButton(now);
-
-    // Game Over
-    if (isDead && !infoOpen) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgb(255, 80, 80)"; ctx.font = "bold 64px sans-serif";
-      ctx.fillText("GAME OVER", WIDTH / 2, HEIGHT / 2 - 130);
-      ctx.fillStyle = "rgb(230, 245, 255)"; ctx.font = "32px sans-serif";
-      ctx.fillText("Твой счёт: " + score, WIDTH / 2, HEIGHT / 2 - 50);
-      ctx.fillStyle = "rgb(180, 220, 255)"; ctx.font = "26px sans-serif";
-      ctx.fillText("Лучший счёт (" + DIFF_NAMES[difficulty] + "): " + bestScore, WIDTH / 2, HEIGHT / 2 - 5);
-      if (coinsEarnedThisLife > 0) {
-        drawCoinIcon(WIDTH / 2 - 50, HEIGHT / 2 + 55, 16);
-        ctx.fillStyle = "rgb(255, 240, 170)"; ctx.font = "bold 26px sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText("+" + coinsEarnedThisLife, WIDTH / 2 - 24, HEIGHT / 2 + 56);
-        ctx.textAlign = "center";
-      }
-      if (score >= bestScore && score > 0) {
-        ctx.fillStyle = "rgb(255, 220, 80)"; ctx.font = "bold 22px sans-serif";
-        ctx.fillText("★ НОВЫЙ РЕКОРД ★", WIDTH / 2, HEIGHT / 2 + 105);
-      }
-      ctx.fillStyle = "rgb(200, 200, 220)"; ctx.font = "22px sans-serif";
-      if (mobileDevice) ctx.fillText("Нажми «Сброс» чтобы продолжить", WIDTH / 2, HEIGHT / 2 + 155);
-      else ctx.fillText("R — заново · Esc — меню", WIDTH / 2, HEIGHT / 2 + 155);
-    }
-    if (infoOpen) drawInfoOverlay();
-  } else {
-    ctx.fillStyle = "rgb(10, 15, 40)";
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    drawMenuScreen(now);
+  } catch (e) {
+    console.error(e);
+    authError.textContent = 'Ошибка соединения';
+    authSubmit.disabled = false;
+    authSubmit.textContent = oldText;
   }
-
-  requestAnimationFrame(loop);
 }
 
-updateRestartBtnVisibility();
-if (!nickname) showNickInput();
-requestAnimationFrame(loop);
+// ============================================================
+// ПОКАЗ ОСНОВНОЙ СТРАНИЦЫ
+// ============================================================
+function showMainPage(nick) {
+  authScreen.classList.add('hidden');
+  userBar.style.display = 'flex';
+  userNick.textContent = nick;
+}
+
+// ============================================================
+// ВЫХОД
+// ============================================================
+logoutBtn.addEventListener('click', async () => {
+  await supabaseClient.auth.signOut();
+  authScreen.classList.remove('hidden');
+  userBar.style.display = 'none';
+  authPass.value = '';
+  authPass2.value = '';
+  authError.textContent = '';
+  authSuccess.textContent = '';
+});
+
+// ============================================================
+// ПРОВЕРКА СЕССИИ ПРИ ЗАГРУЗКЕ
+// ============================================================
+(async () => {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session && session.user) {
+    const nick = session.user.user_metadata?.nickname || 'Игрок';
+    showMainPage(nick);
+  }
+})();
 </script>
 </body>
 </html>
